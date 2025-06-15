@@ -8,18 +8,24 @@
     "start": "next start",
     "lint": "next lint"
   },
-"dependencies": {
+  "dependencies": {
     "@langchain/core": "0.2.5",
     "@langchain/langgraph": "0.1.1",
     "@langchain/openai": "0.2.1",
+    "@radix-ui/react-slot": "^1.2.3",
+    "@radix-ui/react-toast": "^1.2.14",
     "@supabase/ssr": "0.4.0",
     "@supabase/supabase-js": "2.44.4",
     "ai": "3.2.19",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
     "langchain": "0.2.5",
     "lucide-react": "0.411.0",
     "next": "14.2.5",
     "react": "18.3.1",
     "react-dom": "18.3.1",
+    "tailwind-merge": "^3.3.1",
+    "tailwindcss-animate": "^1.0.7",
     "zod": "3.23.8"
   }
 }
