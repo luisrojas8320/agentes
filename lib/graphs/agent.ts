@@ -7,12 +7,12 @@ import {
   MessagesPlaceholder,
 } from "@langchain/core/prompts";
 import { BaseMessage } from "@langchain/core/messages";
-import { AgentExecutor } from "langchain/agents";
+import { AgentExecutor } from "langchain/agents"; // Confirmar si esta es la importación correcta o si debe ser de @langchain/agents
 import { RunnableSequence, RunnableLambda } from "@langchain/core/runnables";
 import { formatToOpenAIToolMessages } from "langchain/agents/format_scratchpad/openai_tools";
 import { OpenAIToolsAgentOutputParser } from "langchain/agents/openai/output_parser";
 import { z } from "zod";
-import { DynamicStructuredTool } from "@langchain/core/tools";
+import { DynamicStructuredTool, StructuredToolInterface } from "@langchain/core/tools"; // Importar StructuredToolInterface
 
 // --- 1. DEFINIR LA HERRAMIENTA CON ZOD ---
 const capitalCityTool = new DynamicStructuredTool({
@@ -46,7 +46,8 @@ interface AgentState {
 
 async function runAgentNode(state: AgentState) {
   const { input, chat_history } = state;
-  const tools = [capitalCityTool];
+  // Tipar explícitamente el array de herramientas
+  const tools: StructuredToolInterface[] = [capitalCityTool]; 
   const llm = new ChatOpenAI({ modelName: "gpt-4-turbo", temperature: 0 });
 
   const agentPrompt = ChatPromptTemplate.fromMessages([
@@ -56,15 +57,12 @@ async function runAgentNode(state: AgentState) {
     new MessagesPlaceholder("agent_scratchpad"),
   ]);
 
-  // Runnable que convierte promptValue a { messages: [...] }
   const promptToMessagesRunnable = RunnableLambda.from(async (promptValue: any) => ({
     messages: await agentPrompt.format(promptValue),
   }));
 
-  // Runnable del LLM con herramientas
   const llmRunnable = llm.bindTools(tools).toRunnable();
 
-  // Secuencia que primero convierte el prompt y luego ejecuta el LLM con herramientas
   const agentWithTools = RunnableSequence.from([
     promptToMessagesRunnable,
     llmRunnable,
@@ -107,4 +105,3 @@ workflow.addEdge(START, "agent");
 workflow.addEdge("agent", END);
 
 export const agentGraph = workflow.compile();
-
