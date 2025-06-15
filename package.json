@@ -11,9 +11,9 @@
   "dependencies": {
     "@google/generative-ai": "^0.15.0",
     "@hookform/resolvers": "^5.1.1",
-    "@langchain/core": "^0.2.14",
-    "@langchain/langgraph": "^0.0.38", 
-    "@langchain/openai": "^0.1.33",
+    "@langchain/core": "^0.2.20",
+    "@langchain/langgraph": "^0.3.3",
+    "@langchain/openai": "^0.2.2",
     "@langchain/textsplitters": "0.0.2",
     "@radix-ui/react-accordion": "^1.2.11",
     "@radix-ui/react-alert-dialog": "^1.1.14",
@@ -81,7 +81,5 @@
     "tailwindcss": "^3.4.6",
     "typescript": "^5.5.3"
   },
-  "overrides": {
-    "@langchain/core": "$@langchain/core"
-  }
+  "overrides": {}
 }
