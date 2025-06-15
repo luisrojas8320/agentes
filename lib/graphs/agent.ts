@@ -1,5 +1,3 @@
-// RUTA: lib/graphs/agent.ts
-
 import { StateGraph, END, START } from "@langchain/langgraph";
 import { ChatOpenAI } from "@langchain/openai";
 import {
@@ -7,14 +5,14 @@ import {
   MessagesPlaceholder,
 } from "@langchain/core/prompts";
 import { BaseMessage } from "@langchain/core/messages";
-import { AgentExecutor } from "langchain/agents"; // Confirmar si esta es la importación correcta o si debe ser de @langchain/agents
+import { AgentExecutor } from "langchain/agents";
 import { RunnableSequence, RunnableLambda } from "@langchain/core/runnables";
 import { formatToOpenAIToolMessages } from "langchain/agents/format_scratchpad/openai_tools";
 import { OpenAIToolsAgentOutputParser } from "langchain/agents/openai/output_parser";
 import { z } from "zod";
-import { DynamicStructuredTool, StructuredToolInterface } from "@langchain/core/tools"; // Importar StructuredToolInterface
+import { DynamicStructuredTool } from "@langchain/core/tools";
 
-// --- 1. DEFINIR LA HERRAMIENTA CON ZOD ---
+// --- Definición de la herramienta ---
 const capitalCityTool = new DynamicStructuredTool({
   name: "get_capital_city",
   description: "Devuelve la capital de un país.",
@@ -22,7 +20,7 @@ const capitalCityTool = new DynamicStructuredTool({
     country: z.string().describe("El nombre del país para buscar su capital."),
   }),
   func: async ({ country }) => {
-    const capitals: { [key: string]: string } = {
+    const capitals: Record<string, string> = {
       francia: "París",
       españa: "Madrid",
       ecuador: "Quito",
@@ -36,7 +34,7 @@ const capitalCityTool = new DynamicStructuredTool({
   },
 });
 
-// --- ESTADO Y NODO ---
+// --- Estado y nodo ---
 interface AgentState {
   input: string;
   chat_history: BaseMessage[];
@@ -46,8 +44,7 @@ interface AgentState {
 
 async function runAgentNode(state: AgentState) {
   const { input, chat_history } = state;
-  // Tipar explícitamente el array de herramientas
-  const tools: StructuredToolInterface[] = [capitalCityTool]; 
+  const tools = [capitalCityTool];
   const llm = new ChatOpenAI({ modelName: "gpt-4-turbo", temperature: 0 });
 
   const agentPrompt = ChatPromptTemplate.fromMessages([
@@ -57,12 +54,15 @@ async function runAgentNode(state: AgentState) {
     new MessagesPlaceholder("agent_scratchpad"),
   ]);
 
+  // Runnable que convierte promptValue a { messages: [...] }
   const promptToMessagesRunnable = RunnableLambda.from(async (promptValue: any) => ({
     messages: await agentPrompt.format(promptValue),
   }));
 
-  const llmRunnable = llm.bindTools(tools).toRunnable();
+  // Obtenemos el runnable directamente sin .toRunnable()
+  const llmRunnable = llm.bindTools(tools);
 
+  // Secuencia que primero convierte el prompt y luego ejecuta el LLM con herramientas
   const agentWithTools = RunnableSequence.from([
     promptToMessagesRunnable,
     llmRunnable,
@@ -81,15 +81,15 @@ async function runAgentNode(state: AgentState) {
 
   const agentExecutor = new AgentExecutor({ agent, tools });
   const result = await agentExecutor.invoke({
-    input: input,
-    chat_history: chat_history,
+    input,
+    chat_history,
     steps: [],
   });
 
   return { agent_outcome: result.output };
 }
 
-// --- GRAFO ---
+// --- Grafo ---
 const workflow = new StateGraph<AgentState>({
   channels: {
     input: { value: (x, y) => y },
