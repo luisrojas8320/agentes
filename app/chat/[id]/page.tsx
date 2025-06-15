@@ -1,4 +1,4 @@
-// Ruta: app/chat/[id]/page.tsx
+// RUTA: app/chat/[id]/page.tsx
 
 "use client"
 
@@ -9,26 +9,22 @@ import { createClient } from "@/utils/supabase/client"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { useToast } from "@/components/ui/use-toast"
-import { Mic, Send, Paperclip, Image as ImageIcon } from 'lucide-react' 
+import { Mic, Send, Paperclip } from 'lucide-react'
+import { useChat, type Message } from 'ai/react'
 
-// ... (El resto de las interfaces y declaraciones no cambian)
+// Interfaz para el Agente
+interface Agent {
+  id: string;
+  name: string;
+  description: string;
+}
+
+// Declaración global para la API de Reconocimiento de Voz
 declare global {
   interface Window {
     SpeechRecognition: any;
     webkitSpeechRecognition: any;
   }
-}
-interface Message {
-  id: string;
-  chat_id: string;
-  content: string;
-  created_at: string;
-  role: "user" | "assistant";
-}
-interface Agent {
-    id: string;
-    name: string;
-    description: string;
 }
 
 export default function ChatPage({ params }: { params: { id: string } }) {
@@ -38,98 +34,191 @@ export default function ChatPage({ params }: { params: { id: string } }) {
   const { toast } = useToast()
   const chatId = params.id
 
-  const [messages, setMessages] = useState<Message[]>([])
   const [agent, setAgent] = useState<Agent | null>(null)
-  const [input, setInput] = useState("")
-  const [isSending, setIsSending] = useState(false)
-  const [isLoading, setIsLoading] = useState(true)
-  const messagesEndRef = useRef<HTMLDivElement>(null)
+  const [initialMessagesLoaded, setInitialMessagesLoaded] = useState(false)
   const [isListening, setIsListening] = useState(false)
-  const recognitionRef = useRef<any>(null)
-  const documentInputRef = useRef<HTMLInputElement>(null);
-  const imageInputRef = useRef<HTMLInputElement>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [lastUploadedFileId, setLastUploadedFileId] = useState<string | null>(null);
+  
+  const recognitionRef = useRef<any>(null)
+  const documentInputRef = useRef<HTMLInputElement>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  const fetchChatData = useCallback(async () => { /* ... sin cambios ... */ });
-  useEffect(() => { /* ... sin cambios ... */ }, [authLoading, user, fetchChatData, router]);
-  useEffect(() => { /* ... sin cambios ... */ }, [messages]);
-  useEffect(() => { /* ... sin cambios ... */ }, []);
-  const handleListen = () => { /* ... sin cambios ... */ };
-  const handleFileUpload = async (file: File, endpoint: string, successMessage: string) => { /* ... sin cambios ... */ };
-  const handleDocumentChange = (e: ChangeEvent<HTMLInputElement>) => { /* ... sin cambios ... */ };
-  const handleImageChange = (e: ChangeEvent<HTMLInputElement>) => { /* ... sin cambios ... */ };
+  const { messages, input, handleInputChange, handleSubmit, isLoading, setMessages, setInput } = useChat({
+    api: "/api/chat",
+    id: chatId,
+    body: { lastUploadedFileId },
+    onFinish: () => {
+      setLastUploadedFileId(null);
+    }
+  });
 
-  // =================================================================================
-  // PASO FINAL: Modificar handleSendMessage para procesar la respuesta en stream.
-  // =================================================================================
-  const handleSendMessage = async (e: FormEvent) => {
-    e.preventDefault();
-    if (!input.trim() || isSending || !user) return;
+  const fetchChatData = useCallback(async () => {
+    if (!user || initialMessagesLoaded) return;
+    
+    const { data: agentData, error: agentError } = await supabase
+      .from('chats')
+      .select('agent_id, agents (id, name, description)')
+      .eq('id', chatId)
+      .single();
 
-    const tempUserMessage: Message = { id: crypto.randomUUID(), chat_id: chatId, content: input, created_at: new Date().toISOString(), role: "user" };
-    setMessages((prev) => [...prev, tempUserMessage]);
-    const currentInput = input;
-    setInput("");
-    setIsSending(true);
+    if (agentError || !agentData) {
+      toast({ title: "Error", description: "No se pudo cargar la información del agente.", variant: "destructive" });
+      router.push('/');
+      return;
+    }
 
-    // Placeholder para el mensaje del asistente, que se irá actualizando
-    const tempAssistantMessage: Message = { id: crypto.randomUUID(), chat_id: chatId, content: "Pensando...", created_at: new Date().toISOString(), role: "assistant" };
-    setMessages((prev) => [...prev, tempAssistantMessage]);
+    // FIX: Asignación segura para evitar el error de tipos de Supabase
+    const agentFromDb = agentData.agents as any;
+    if (agentFromDb && agentFromDb.id && agentFromDb.name) {
+        setAgent({
+            id: agentFromDb.id,
+            name: agentFromDb.name,
+            description: agentFromDb.description || "", // Asegurarse de que description no sea null
+        });
+    }
+
+    const { data: messagesData, error: messagesError } = await supabase
+      .from('messages')
+      .select('id, chat_id, content, created_at, role')
+      .eq('chat_id', chatId)
+      .order('created_at', { ascending: true });
+
+    if (messagesError) {
+      toast({ title: "Error", description: "No se pudieron cargar los mensajes.", variant: "destructive" });
+    } else {
+      setMessages(messagesData as Message[]);
+    }
+    setInitialMessagesLoaded(true);
+  }, [user, chatId, initialMessagesLoaded, router, setMessages, toast]);
+
+  // --- El resto de las funciones y efectos no cambian ---
+
+  useEffect(() => {
+    if (!authLoading && user) {
+      fetchChatData();
+    }
+    if (!authLoading && !user) {
+        router.push('/login');
+    }
+  }, [authLoading, user, fetchChatData, router]);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  useEffect(() => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (SpeechRecognition) {
+      recognitionRef.current = new SpeechRecognition();
+      recognitionRef.current.continuous = false;
+      recognitionRef.current.lang = 'es-ES';
+      recognitionRef.current.interimResults = false;
+
+      recognitionRef.current.onresult = (event: any) => {
+        const transcript = event.results[0][0].transcript;
+        setInput(transcript);
+        setIsListening(false);
+      };
+
+      recognitionRef.current.onerror = (event: any) => {
+        console.error("Error en reconocimiento de voz:", event.error);
+        toast({ title: "Error de Micrófono", description: "No se pudo reconocer la voz.", variant: "destructive" });
+        setIsListening(false);
+      };
+      
+      recognitionRef.current.onend = () => {
+        setIsListening(false);
+      };
+    }
+  }, [setInput, toast]);
+
+  const handleListen = () => {
+    if (isListening) {
+      recognitionRef.current.stop();
+    } else {
+      recognitionRef.current.start();
+    }
+    setIsListening(!isListening);
+  };
+
+  const handleFileUpload = async (file: File) => {
+    setIsUploading(true);
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('chatId', chatId);
 
     try {
-      const bodyPayload = { text: currentInput, chatId, lastUploadedFileId };
-      setLastUploadedFileId(null);
-
-      const response = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(bodyPayload),
-      });
-
-      if (!response.body) {
-        throw new Error("La respuesta no tiene cuerpo.");
-      }
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let done = false;
-
-      while (!done) {
-        const { value, done: doneReading } = await reader.read();
-        done = doneReading;
-        const chunkValue = decoder.decode(value);
-
-        // Procesamos los eventos que nos llegan del stream
-        const lines = chunkValue.split('\n\n').filter(line => line.trim() !== '');
-        for (const line of lines) {
-            if (line.startsWith('data: ')) {
-                const data = JSON.parse(line.substring(6));
-                if (data.type === 'final_answer') {
-                    // Actualizamos el mensaje del asistente con la respuesta final
-                    setMessages(prev => prev.map(m => 
-                        m.id === tempAssistantMessage.id ? { ...m, content: data.content } : m
-                    ));
-                }
-                // Aquí podríamos manejar otros tipos de eventos, como 'tool_start', etc.
-            }
-        }
-      }
-
+      const response = await fetch('/api/upload', { method: 'POST', body: formData });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error);
+      
+      setLastUploadedFileId(result.documentId);
+      toast({ title: "Éxito", description: `Archivo "${file.name}" listo para ser usado.` });
     } catch (error: any) {
-      toast({ title: "Error", description: error.message, variant: "destructive" });
-      setMessages(prev => prev.filter(m => m.id !== tempAssistantMessage.id && m.id !== tempUserMessage.id));
+      toast({ title: "Error de subida", description: error.message, variant: "destructive" });
     } finally {
-      setIsSending(false);
+      setIsUploading(false);
+    }
+  };
+
+  const handleDocumentChange = (e: ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files?.[0]) {
+        handleFileUpload(e.target.files[0]);
+        if(e.target) e.target.value = '';
     }
   };
 
   return (
-    // ... El JSX no cambia, solo la lógica de handleSendMessage ...
-    <div className="flex flex-col h-screen bg-gray-50">
-      <header>...</header>
-      <main>...</main>
-      <footer>...</footer>
+    <div className="flex flex-col h-screen bg-gray-100 dark:bg-gray-900">
+      <header className="bg-white dark:bg-gray-800 border-b dark:border-gray-700 p-4 flex items-center justify-between shadow-sm">
+        <h1 className="text-xl font-semibold text-gray-900 dark:text-white">{agent?.name || "Chat"}</h1>
+      </header>
+
+      <main className="flex-1 overflow-y-auto p-4">
+        <div className="space-y-4">
+          {messages.map(m => (
+            <div key={m.id} className={`flex items-end gap-2 ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+              <div className={`rounded-lg p-3 max-w-[80%] break-words ${m.role === 'user' ? 'bg-blue-500 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-white'}`}>
+                <p className="text-sm whitespace-pre-wrap">{m.content}</p>
+              </div>
+            </div>
+          ))}
+          {(isLoading && !isUploading) && (
+             <div className="flex items-end gap-2 justify-start">
+                <div className="rounded-lg p-3 max-w-lg bg-gray-200 dark:bg-gray-700 animate-pulse">
+                    <p className="text-sm text-gray-500 dark:text-gray-400">Pensando...</p>
+                </div>
+            </div>
+          )}
+          <div ref={messagesEndRef} />
+        </div>
+      </main>
+
+      <footer className="bg-white dark:bg-gray-800 border-t dark:border-gray-700 p-2 sm:p-4">
+        <form onSubmit={handleSubmit} className="flex items-center gap-2">
+            <Button type="button" variant="ghost" size="icon" onClick={() => documentInputRef.current?.click()} disabled={isLoading || isUploading}>
+                <Paperclip className="h-5 w-5" />
+            </Button>
+            <Input name="document" type="file" ref={documentInputRef} onChange={handleDocumentChange} className="hidden" accept=".pdf,.txt,.md" />
+            
+            <Input 
+                className="flex-1" 
+                placeholder={isListening ? "Escuchando..." : "Escribe tu mensaje..."}
+                value={input}
+                onChange={handleInputChange} 
+                disabled={isLoading || isUploading}
+            />
+
+            <Button type="button" variant={isListening ? "destructive" : "ghost"} size="icon" onClick={handleListen} disabled={isLoading || isUploading}>
+                <Mic className="h-5 w-5" />
+            </Button>
+
+            <Button type="submit" size="icon" disabled={isLoading || isUploading || !input.trim()}>
+                <Send className="h-5 w-5" />
+            </Button>
+        </form>
+      </footer>
     </div>
   )
 }
