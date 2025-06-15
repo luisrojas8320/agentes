@@ -8,7 +8,7 @@ import {
 } from "@langchain/core/prompts";
 import { BaseMessage } from "@langchain/core/messages";
 import { AgentExecutor } from "langchain/agents";
-import { RunnableSequence, Runnable } from "@langchain/core/runnables";
+import { RunnableSequence, RunnableLambda } from "@langchain/core/runnables";
 import { formatToOpenAIToolMessages } from "langchain/agents/format_scratchpad/openai_tools";
 import { OpenAIToolsAgentOutputParser } from "langchain/agents/openai/output_parser";
 import { z } from "zod";
@@ -56,20 +56,18 @@ async function runAgentNode(state: AgentState) {
     new MessagesPlaceholder("agent_scratchpad"),
   ]);
 
-  // Runnable personalizado con lc_namespace requerido
-  const promptToMessagesRunnable = new (class extends Runnable {
-    lc_namespace = ["custom", "promptToMessages"];
+  // Runnable que convierte promptValue a { messages: [...] }
+  const promptToMessagesRunnable = RunnableLambda.from(async (promptValue: any) => ({
+    messages: await agentPrompt.format(promptValue),
+  }));
 
-    async invoke(promptValue: any) {
-      return {
-        messages: await agentPrompt.format(promptValue),
-      };
-    }
-  })();
+  // Runnable del LLM con herramientas
+  const llmRunnable = llm.bindTools(tools).toRunnable();
 
+  // Secuencia que primero convierte el prompt y luego ejecuta el LLM con herramientas
   const agentWithTools = RunnableSequence.from([
     promptToMessagesRunnable,
-    llm.bindTools(tools),
+    llmRunnable,
   ]);
 
   const agent = RunnableSequence.from([
