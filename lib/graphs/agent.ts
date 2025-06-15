@@ -12,9 +12,9 @@ import { RunnableSequence } from "@langchain/core/runnables";
 import { formatToOpenAIToolMessages } from "langchain/agents/format_scratchpad/openai_tools";
 import { OpenAIToolsAgentOutputParser } from "langchain/agents/openai/output_parser";
 import { z } from "zod";
-import { DynamicStructuredTool } from "@langchain/core/tools"; // CAMBIO: Usar DynamicStructuredTool
+import { DynamicStructuredTool } from "@langchain/core/tools"; // Usa DynamicStructuredTool
 
-// --- 1. DEFINIR LA HERRAMIENTA CON ZOD (MÉTODO MODERNO Y ROBUSTO) ---
+// --- 1. DEFINIR LA HERRAMIENTA CON ZOD ---
 const capitalCityTool = new DynamicStructuredTool({
   name: "get_capital_city",
   description: "Devuelve la capital de un país.",
@@ -56,7 +56,14 @@ async function runAgentNode(state: AgentState) {
     new MessagesPlaceholder("agent_scratchpad"),
   ]);
 
-  const agentWithTools = agentPrompt.pipe(llm.bindTools(tools));
+  // Solución: convertir el promptValue a { messages: [...] }
+  const promptToMessages = async (promptValue: any) => ({
+    messages: await agentPrompt.format(promptValue),
+  });
+
+  const agentWithTools = agentPrompt
+    .pipe(promptToMessages)
+    .pipe(llm.bindTools(tools));
 
   const agent = RunnableSequence.from([
     {
