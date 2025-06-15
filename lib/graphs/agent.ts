@@ -8,11 +8,11 @@ import {
 } from "@langchain/core/prompts";
 import { BaseMessage } from "@langchain/core/messages";
 import { AgentExecutor } from "langchain/agents";
-import { RunnableSequence } from "@langchain/core/runnables";
+import { RunnableSequence, Runnable } from "@langchain/core/runnables";
 import { formatToOpenAIToolMessages } from "langchain/agents/format_scratchpad/openai_tools";
 import { OpenAIToolsAgentOutputParser } from "langchain/agents/openai/output_parser";
 import { z } from "zod";
-import { DynamicStructuredTool } from "@langchain/core/tools"; // Usamos DynamicStructuredTool
+import { DynamicStructuredTool } from "@langchain/core/tools";
 
 // --- 1. DEFINIR LA HERRAMIENTA CON ZOD ---
 const capitalCityTool = new DynamicStructuredTool({
@@ -56,12 +56,14 @@ async function runAgentNode(state: AgentState) {
     new MessagesPlaceholder("agent_scratchpad"),
   ]);
 
-  // Runnable para convertir promptValue a { messages: [...] }
-  const promptToMessagesRunnable = {
-    invoke: async (promptValue: any) => ({
-      messages: await agentPrompt.format(promptValue),
-    }),
-  };
+  // Runnable personalizado para convertir promptValue a { messages: [...] }
+  const promptToMessagesRunnable = new (class extends Runnable {
+    async invoke(promptValue: any) {
+      return {
+        messages: await agentPrompt.format(promptValue),
+      };
+    }
+  })();
 
   // Secuencia que primero convierte el prompt y luego ejecuta el LLM con herramientas
   const agentWithTools = RunnableSequence.from([
