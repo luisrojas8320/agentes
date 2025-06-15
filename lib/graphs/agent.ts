@@ -56,8 +56,10 @@ async function runAgentNode(state: AgentState) {
     new MessagesPlaceholder("agent_scratchpad"),
   ]);
 
-  // Runnable personalizado para convertir promptValue a { messages: [...] }
+  // Runnable personalizado con lc_namespace requerido
   const promptToMessagesRunnable = new (class extends Runnable {
+    lc_namespace = ["custom", "promptToMessages"];
+
     async invoke(promptValue: any) {
       return {
         messages: await agentPrompt.format(promptValue),
@@ -65,7 +67,6 @@ async function runAgentNode(state: AgentState) {
     }
   })();
 
-  // Secuencia que primero convierte el prompt y luego ejecuta el LLM con herramientas
   const agentWithTools = RunnableSequence.from([
     promptToMessagesRunnable,
     llm.bindTools(tools),
@@ -108,3 +109,4 @@ workflow.addEdge(START, "agent");
 workflow.addEdge("agent", END);
 
 export const agentGraph = workflow.compile();
+
