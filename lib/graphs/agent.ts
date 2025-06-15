@@ -1,6 +1,6 @@
 // RUTA: lib/graphs/agent.ts
 
-import { StateGraph, END } from "@langchain/langgraph";
+import { StateGraph, END, START } from "@langchain/langgraph";
 import { ChatOpenAI } from "@langchain/openai";
 import {
   ChatPromptTemplate,
@@ -12,10 +12,11 @@ import { RunnableSequence } from "@langchain/core/runnables";
 import { formatToOpenAIToolMessages } from "langchain/agents/format_scratchpad/openai_tools";
 import { OpenAIToolsAgentOutputParser } from "langchain/agents/openai/output_parser";
 import { z } from "zod";
-import { DynamicStructuredTool } from "@langchain/core/tools";
+import { StructuredTool } from "@langchain/core/tools"; // CAMBIO AQUÍ: DynamicStructuredTool por StructuredTool
 
 // --- 1. DEFINIR LA HERRAMIENTA CON ZOD (MÉTODO MODERNO Y ROBUSTO) ---
-const capitalCityTool = new DynamicStructuredTool({
+// CAMBIO AQUÍ: StructuredTool se usa directamente
+const capitalCityTool = new StructuredTool({
   name: "get_capital_city",
   description: "Devuelve la capital de un país.",
   // El esquema Zod define los argumentos de entrada de forma estricta.
@@ -52,19 +53,25 @@ async function runAgentNode(state: AgentState) {
   const tools = [capitalCityTool]; // Usamos la nueva herramienta
   const llm = new ChatOpenAI({ modelName: "gpt-4-turbo", temperature: 0 });
 
+  // Ajustar la construcción del agente para que los tipos sean compatibles.
+  // La entrada al prompt necesita ser un mapa, y el LLM bindeado es el siguiente paso.
+  const agentPrompt = ChatPromptTemplate.fromMessages([
+    ["system", "Eres un asistente servicial."],
+    new MessagesPlaceholder("chat_history"),
+    ["human", "{input}"],
+    new MessagesPlaceholder("agent_scratchpad"),
+  ]);
+
+  const agentWithTools = agentPrompt.pipe(llm.bindTools(tools)); // Combinar el prompt con el LLM bindeado a herramientas
+
   const agent = RunnableSequence.from([
     {
-      input: (i) => i.input,
-      agent_scratchpad: (i) => formatToOpenAIToolMessages(i.steps),
-      chat_history: (i) => i.chat_history,
+      input: (i: { input: string; steps: BaseMessage[]; chat_history: BaseMessage[] }) => i.input,
+      agent_scratchpad: (i: { input: string; steps: BaseMessage[]; chat_history: BaseMessage[] }) =>
+        formatToOpenAIToolMessages(i.steps),
+      chat_history: (i: { input: string; steps: BaseMessage[]; chat_history: BaseMessage[] }) => i.chat_history,
     },
-    ChatPromptTemplate.fromMessages([
-      ["system", "Eres un asistente servicial."],
-      new MessagesPlaceholder("chat_history"),
-      ["human", "{input}"],
-      new MessagesPlaceholder("agent_scratchpad"),
-    ]),
-    llm.bindTools(tools),
+    agentWithTools, // Ahora pasamos la secuencia de prompt y LLM bindeado
     new OpenAIToolsAgentOutputParser(),
   ]);
 
@@ -78,7 +85,7 @@ async function runAgentNode(state: AgentState) {
   return { agent_outcome: result.output };
 }
 
-// --- GRAFO (Sin cambios, ahora debería funcionar) ---
+// --- GRAFO (Manteniendo la corrección para START/END) ---
 const workflow = new StateGraph<AgentState>({
   channels: {
     input: { value: (x, y) => y },
@@ -89,7 +96,8 @@ const workflow = new StateGraph<AgentState>({
 });
 
 workflow.addNode("agent", runAgentNode);
-workflow.setEntryPoint("agent");
+workflow.setEntryPoint(START); // Punto de entrada es el nodo especial START
+workflow.addEdge(START, "agent"); // Conectar START al nodo "agent"
 workflow.addEdge("agent", END);
 
 export const agentGraph = workflow.compile();
