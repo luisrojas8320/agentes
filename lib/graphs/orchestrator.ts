@@ -84,7 +84,6 @@ workflow.addNode("supervisor", supervisorNode);
 workflow.addNode("tools", toolNode);
 workflow.setEntryPoint("supervisor" as any);
 workflow.addConditionalEdges("supervisor" as any, shouldContinue);
-// CORRECCIÓN FINAL: Se aplica el workaround a ambos argumentos.
 workflow.addEdge("tools" as any, "supervisor" as any);
 
 export const orchestratorApp = workflow.compile();
