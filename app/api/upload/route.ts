@@ -1,3 +1,5 @@
+// RUTA: app/api/upload/route.ts
+
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient as createSupabaseAdminClient } from '@supabase/supabase-js';
 import { createClient as createSupabaseServerClient } from '@/utils/supabase/server';
@@ -5,6 +7,9 @@ import { RecursiveCharacterTextSplitter } from '@langchain/textsplitters';
 import { OpenAIEmbeddings } from "@langchain/openai";
 import { v4 as uuidv4 } from 'uuid';
 import pdf from 'pdf-parse';
+
+// CONFIGURACIÓN FINAL: Forza la ruta a ser 100% dinámica.
+export const dynamic = 'force-dynamic';
 
 const supabaseAdmin = createSupabaseAdminClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
