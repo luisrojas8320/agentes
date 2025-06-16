@@ -1,59 +1,34 @@
-import { StreamingTextResponse } from "ai";
-import { AIMessage, HumanMessage } from "@langchain/core/messages";
-import { orchestratorApp } from "@/lib/graphs/orchestrator";
+import { NextRequest, NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
 
-export async function POST(req: Request) {
-  console.log("-----------------------------------------");
-  console.log("[API /orchestrator] Petición recibida.");
-
+export async function POST(req: NextRequest) {
+  // Este es el log que necesitamos ver en Vercel.
+  console.log("--- PING TEST INICIADO ---");
+  
   try {
-    const { messages } = await req.json();
-    console.log(`[API /orchestrator] Mensajes recibidos: ${messages.length}`);
-    console.log("[API /orchestrator] Último mensaje de usuario:", messages[messages.length - 1].content);
+    const body = await req.json();
+    console.log("Cuerpo de la petición recibido:", body);
 
-    const langChainMessages = messages.map((m: any) => {
-      return m.role === "user" ? new HumanMessage(m.content) : new AIMessage(m.content);
-    });
-
-    console.log("[API /orchestrator] Iniciando invocación del grafo orquestador...");
-    const chainResponse = await orchestratorApp.invoke({ messages: langChainMessages });
-    console.log("[API /orchestrator] El grafo orquestador ha finalizado.");
-
-    if (!chainResponse || !chainResponse.messages || chainResponse.messages.length === 0) {
-      console.error("[API /orchestrator] ERROR: La respuesta del grafo está vacía o es inválida.");
-      throw new Error("La respuesta del grafo orquestador está vacía.");
-    }
-
-    const lastMessage = chainResponse.messages[chainResponse.messages.length - 1];
-    console.log("[API /orchestrator] Último mensaje de la cadena:", lastMessage);
+    const responseMessage = "Respuesta de prueba: la ruta del orquestador está viva.";
     
-    if (!(lastMessage instanceof AIMessage) || typeof lastMessage.content !== 'string') {
-        console.error("[API /orchestrator] ERROR: La respuesta final no es un AIMessage con contenido de texto.");
-        throw new Error("El agente no produjo una respuesta final de texto válida.");
-    }
-
-    const responseContent = lastMessage.content;
-    console.log("[API /orchestrator] Respuesta final para el usuario:", responseContent);
-
+    // Devolvemos una respuesta simple en formato de stream para que 'useChat' la reciba.
     const stream = new ReadableStream({
       start(controller) {
-        controller.enqueue(responseContent);
+        controller.enqueue(responseMessage);
         controller.close();
       },
     });
 
-    console.log("[API /orchestrator] Devolviendo respuesta al cliente.");
-    console.log("-----------------------------------------");
-    return new StreamingTextResponse(stream);
+    console.log("--- PING TEST FINALIZADO ---");
+    return new NextResponse(stream, {
+        headers: {
+            "Content-Type": "text/plain; charset=utf-8",
+        },
+    });
 
   } catch (error: any) {
-    console.error("[API /orchestrator] ERROR CATASTRÓFICO:", error);
-    console.log("-----------------------------------------");
-    return new Response(JSON.stringify({ error: error.message }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    console.error("Error en el PING TEST:", error);
+    return NextResponse.json({ error: "Error en la ruta de prueba." }, { status: 500 });
   }
 }
