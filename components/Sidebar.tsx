@@ -1,7 +1,7 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import { HardDrive, Heart, Plus, Share2, Star, User } from "lucide-react";
+import { HardDrive, Plus, Star, User } from "lucide-react";
 
 export default function Sidebar() {
   const menuItems = [
@@ -13,7 +13,8 @@ export default function Sidebar() {
     <aside className="w-1/4 min-w-[280px] max-w-[320px] bg-[#111111] text-gray-300 flex flex-col p-4">
       <div className="flex-grow">
         <div className="flex items-center justify-between mb-6">
-          <h1 className="text-2xl font-bold text-white">manus</h1>
+          {/* CORRECCIÓN: Se actualiza el título y los estilos */}
+          <h1 className="text-lg font-semibold text-white tracking-wider uppercase">PLAYGROUND AGENTS</h1>
         </div>
         <Button className="w-full bg-white text-black hover:bg-gray-200">
           <Plus className="mr-2 h-4 w-4" />
@@ -49,7 +50,7 @@ export default function Sidebar() {
       </div>
       <div className="flex-shrink-0">
          <div className="p-3 rounded-lg hover:bg-[#1e1e1e] cursor-pointer mb-2">
-            <p className="font-semibold text-white">Comparte Manus con un amigo</p>
+            <p className="font-semibold text-white">Comparte con un amigo</p>
             <p className="text-sm text-gray-400">Obtén 500 créditos cada uno</p>
          </div>
          <div className="flex items-center p-2">
