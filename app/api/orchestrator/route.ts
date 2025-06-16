@@ -1,11 +1,11 @@
-import { StreamingTextResponse } from "ai";
+import { NextResponse } from 'next/server';
 import { AIMessage, HumanMessage } from "@langchain/core/messages";
 import { orchestratorApp } from "@/lib/graphs/orchestrator";
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: Request) {
-  console.log("--- Petición de Chat Real Recibida ---");
+  console.log("--- Petición de Chat (Prueba JSON) ---");
 
   try {
     const { messages } = await req.json();
@@ -15,28 +15,20 @@ export async function POST(req: Request) {
       return m.role === "user" ? new HumanMessage(m.content) : new AIMessage(m.content);
     });
     
-    // Invocamos nuestro nuevo y simple grafo.
     const chainResponse = await orchestratorApp.invoke({ messages: langChainMessages });
 
     const lastMessage = chainResponse.messages[chainResponse.messages.length - 1] as AIMessage;
     const responseContent = lastMessage.content as string;
     
-    console.log("Respuesta del grafo:", responseContent);
+    console.log("Respuesta generada por el grafo:", responseContent);
 
-    const stream = new ReadableStream({
-      start(controller) {
-        controller.enqueue(responseContent);
-        controller.close();
-      },
+    // DEVOLVEMOS UNA RESPUESTA JSON EN LUGAR DE UN STREAM
+    return NextResponse.json({
+      response: responseContent
     });
-
-    return new StreamingTextResponse(stream);
 
   } catch (error: any) {
     console.error("ERROR en la ruta del orquestador:", error);
-    return new Response(JSON.stringify({ error: error.message }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
