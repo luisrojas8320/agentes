@@ -3,13 +3,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient as createSupabaseAdminClient } from '@supabase/supabase-js';
 import { createClient as createSupabaseServerClient } from '@/utils/supabase/server';
+// CORRECCIÓN: Se restaura la ruta de importación original y correcta.
 import { RecursiveCharacterTextSplitter } from '@langchain/textsplitters';
 import { OpenAIEmbeddings } from "@langchain/openai";
 import { v4 as uuidv4 } from 'uuid';
-// FIX: Se importa 'pdf-parse' directamente para evitar el problemático PDFLoader
 import pdf from 'pdf-parse';
-
-// Se eliminó la importación del tipo 'Document' porque ya no usamos loader.load()
 
 const supabaseAdmin = createSupabaseAdminClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -18,7 +16,6 @@ const supabaseAdmin = createSupabaseAdminClient(
 const embeddings = new OpenAIEmbeddings();
 
 async function performOCR(file: File): Promise<string> {
-  // ... (sin cambios en esta función)
   console.log('[OCR] Iniciando OCR para el archivo:', file.name);
   const formData = new FormData();
   formData.append('file', file);
@@ -34,14 +31,10 @@ async function performOCR(file: File): Promise<string> {
   return result.ParsedResults[0].ParsedText;
 }
 
-/**
- * Procesa un archivo (PDF o texto), extrae su contenido y lo divide en trozos.
- */
 async function processAndSplitDocument(file: File): Promise<string[]> {
   let rawText: string | null = null;
 
   if (file.type.includes('pdf')) {
-    // FIX: Se reemplaza PDFLoader con el uso directo de pdf-parse.
     console.log('[PROCESS] Procesando PDF con pdf-parse...');
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
@@ -77,11 +70,6 @@ async function processAndSplitDocument(file: File): Promise<string[]> {
   return chunks;
 }
 
-
-/**
- * Endpoint POST para subir un archivo, procesarlo, generar embeddings
- * y guardar los trozos en la base de datos de Supabase.
- */
 export async function POST(req: NextRequest) {
   const supabase = createSupabaseServerClient();
   try {
