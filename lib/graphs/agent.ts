@@ -10,7 +10,6 @@ import { z } from "zod";
 import { DynamicStructuredTool } from "@langchain/core/tools";
 import { AgentStep } from "@langchain/core/agents";
 
-// --- Herramienta (sin cambios) ---
 const capitalCityTool = new DynamicStructuredTool({
   name: "get_capital_city",
   description: "Devuelve la capital de un país.",
@@ -32,7 +31,6 @@ const capitalCityTool = new DynamicStructuredTool({
   },
 });
 
-// --- Estado y Nodo (sin cambios) ---
 interface AgentState {
   input: string;
   chat_history: BaseMessage[];
@@ -71,7 +69,6 @@ async function runAgentNode(state: AgentState) {
   return { agent_outcome: result.output };
 }
 
-// --- Grafo (sin cambios) ---
 const workflow = new StateGraph<AgentState>({
   channels: {
     input: { value: (x, y) => y },
