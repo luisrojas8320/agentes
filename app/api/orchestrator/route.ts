@@ -1,34 +1,42 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { StreamingTextResponse } from "ai";
+import { AIMessage, HumanMessage } from "@langchain/core/messages";
+import { orchestratorApp } from "@/lib/graphs/orchestrator";
 
 export const dynamic = 'force-dynamic';
 
-export async function POST(req: NextRequest) {
-  // Este es el log que necesitamos ver en Vercel.
-  console.log("--- PING TEST INICIADO ---");
-  
-  try {
-    const body = await req.json();
-    console.log("Cuerpo de la petición recibido:", body);
+export async function POST(req: Request) {
+  console.log("--- Petición de Chat Real Recibida ---");
 
-    const responseMessage = "Respuesta de prueba: la ruta del orquestador está viva.";
+  try {
+    const { messages } = await req.json();
+    console.log("Invocando el grafo simplificado con el último mensaje:", messages[messages.length - 1].content);
+
+    const langChainMessages = messages.map((m: any) => {
+      return m.role === "user" ? new HumanMessage(m.content) : new AIMessage(m.content);
+    });
     
-    // Devolvemos una respuesta simple en formato de stream para que 'useChat' la reciba.
+    // Invocamos nuestro nuevo y simple grafo.
+    const chainResponse = await orchestratorApp.invoke({ messages: langChainMessages });
+
+    const lastMessage = chainResponse.messages[chainResponse.messages.length - 1] as AIMessage;
+    const responseContent = lastMessage.content as string;
+    
+    console.log("Respuesta del grafo:", responseContent);
+
     const stream = new ReadableStream({
       start(controller) {
-        controller.enqueue(responseMessage);
+        controller.enqueue(responseContent);
         controller.close();
       },
     });
 
-    console.log("--- PING TEST FINALIZADO ---");
-    return new NextResponse(stream, {
-        headers: {
-            "Content-Type": "text/plain; charset=utf-8",
-        },
-    });
+    return new StreamingTextResponse(stream);
 
   } catch (error: any) {
-    console.error("Error en el PING TEST:", error);
-    return NextResponse.json({ error: "Error en la ruta de prueba." }, { status: 500 });
+    console.error("ERROR en la ruta del orquestador:", error);
+    return new Response(JSON.stringify({ error: error.message }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    });
   }
 }
