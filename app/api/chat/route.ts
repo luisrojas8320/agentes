@@ -1,18 +1,13 @@
-// RUTA: app/api/chat/route.ts
-
-import { NextRequest, NextResponse } from 'next/server';
-// FIX 1: Importamos el 'orchestratorApp', que es el cerebro, no el agente simple.
+import { NextResponse } from 'next/server';
 import { orchestratorApp } from '@/lib/graphs/orchestrator';
 import { AIMessage, HumanMessage } from '@langchain/core/messages';
 
 export const runtime = 'edge';
 
-export async function POST(req: NextRequest) {
+export async function POST(req: Request) {
   try {
     const { messages } = await req.json();
 
-    // El orquestador necesita todo el historial para tomar decisiones,
-    // así que lo convertimos al formato de LangChain.
     const convertedMessages = messages.map((m: any) =>
       m.role === 'user'
         ? new HumanMessage(m.content)
@@ -22,11 +17,13 @@ export async function POST(req: NextRequest) {
     const stream = new ReadableStream({
       async start(controller) {
         const streamCallback = (chunk: string) => {
-          controller.enqueue(new TextEncoder().encode(chunk));
+          try {
+            controller.enqueue(new TextEncoder().encode(chunk));
+          } catch (e) {
+            // Manejar el caso en que el stream ya se cerró
+          }
         };
 
-        // FIX 2: Invocamos 'orchestratorApp'.
-        // Su estado de entrada es un objeto con una clave 'messages'.
         const eventStream = await orchestratorApp.streamEvents(
           {
             messages: convertedMessages,
@@ -34,16 +31,12 @@ export async function POST(req: NextRequest) {
           { version: 'v1' }
         );
 
-        // FIX 3: La lógica de streaming ahora busca los trozos de texto
-        // que vienen directamente del LLM, que es la respuesta final del supervisor.
         for await (const event of eventStream) {
-          const eventName = event.event;
-          
-          if (eventName === 'on_chat_model_stream') {
-            const content = event.data.chunk?.content;
-            if (content) {
-              // Enviamos cada trozo de texto al frontend a medida que llega.
-              streamCallback(content);
+          if (event.event === 'on_chat_model_stream') {
+            const chunk = event.data.chunk as AIMessage;
+            // Asegurarse de que solo se envían chunks de la respuesta final del supervisor
+            if (event.name === 'supervisor' && !chunk.tool_calls?.length && typeof chunk.content === 'string') {
+              streamCallback(chunk.content);
             }
           }
         }
@@ -56,8 +49,9 @@ export async function POST(req: NextRequest) {
         'Content-Type': 'text/plain; charset=utf-8',
       },
     });
+
   } catch (e: any) {
-    console.error(e);
+    console.error("Error en la ruta de chat principal:", e);
     return NextResponse.json({ error: e.message }, { status: 500 });
   }
 }
