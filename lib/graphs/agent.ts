@@ -82,7 +82,8 @@ const workflow = new StateGraph<AgentState>({
 });
 
 workflow.addNode("agent", runAgentNode);
-workflow.setEntryPoint("agent");
-workflow.addEdge("agent", END);
+workflow.setEntryPoint("agent" as any);
+// CORRECCIÓN FINAL:
+workflow.addEdge("agent" as any, END);
 
 export const agentGraph = workflow.compile();
