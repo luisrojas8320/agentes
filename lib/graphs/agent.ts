@@ -32,8 +32,7 @@ const capitalCityTool = new DynamicStructuredTool({
   },
 });
 
-// --- Estado y Nodo ---
-// Se actualiza 'steps' al tipo correcto 'AgentStep'
+// --- Estado y Nodo (sin cambios) ---
 interface AgentState {
   input: string;
   chat_history: BaseMessage[];
@@ -41,11 +40,9 @@ interface AgentState {
   steps: AgentStep[];
 }
 
-// El nodo ahora usa las abstracciones de alto nivel de LangChain correctamente
 async function runAgentNode(state: AgentState) {
   const { input, chat_history } = state;
   const tools = [capitalCityTool];
-  // Asegúrate de tener la variable de entorno OPENAI_API_KEY configurada
   const llm = new ChatOpenAI({ modelName: "gpt-4-turbo", temperature: 0 });
 
   const agentPrompt = ChatPromptTemplate.fromMessages([
@@ -55,7 +52,6 @@ async function runAgentNode(state: AgentState) {
     new MessagesPlaceholder("agent_scratchpad"),
   ]);
 
-  // 'createOpenAIToolsAgent' crea el agente runnable con el formato correcto
   const agent = await createOpenAIToolsAgent({
     llm,
     tools,
@@ -67,7 +63,6 @@ async function runAgentNode(state: AgentState) {
     tools,
   });
 
-  // 'invoke' del executor ya maneja los pasos (steps) internamente
   const result = await agentExecutor.invoke({
     input,
     chat_history,
@@ -76,26 +71,27 @@ async function runAgentNode(state: AgentState) {
   return { agent_outcome: result.output };
 }
 
-// --- Grafo (sin cambios) ---
+// --- Grafo (Sección modificada) ---
 const workflow = new StateGraph<AgentState>({
   channels: {
     input: { value: (x, y) => y },
     chat_history: {
-        // Asegura que el historial de chat se acumule correctamente si es necesario
-        value: (x, y) => x.concat(y),
-        default: () => [],
+      value: (x, y) => x.concat(y),
+      default: () => [],
     },
     agent_outcome: { value: (x, y) => y },
-    // 'steps' ahora se alinea con el tipo AgentStep
     steps: { value: (x, y) => x.concat(y), default: () => [] },
   },
 });
 
+// 1. Añadimos el nodo al grafo
 workflow.addNode("agent", runAgentNode);
 
-// Define el punto de entrada para el grafo.
-// START es una constante exportada por @langchain/langgraph
-workflow.addEdge(START, "agent");
+// 2. Definimos el punto de entrada del grafo de forma explícita
+workflow.setEntryPoint("agent");
+
+// 3. Definimos que después del nodo "agent", el grafo debe terminar
 workflow.addEdge("agent", END);
 
+// 4. Compilamos el grafo
 export const agentGraph = workflow.compile();
