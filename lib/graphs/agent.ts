@@ -5,14 +5,12 @@ import {
   MessagesPlaceholder,
 } from "@langchain/core/prompts";
 import { BaseMessage } from "@langchain/core/messages";
-import { AgentExecutor } from "langchain/agents";
-import { RunnableSequence, RunnableLambda } from "@langchain/core/runnables";
-import { formatToOpenAIToolMessages } from "langchain/agents/format_scratchpad/openai_tools";
-import { OpenAIToolsAgentOutputParser } from "langchain/agents/openai/output_parser";
+import { createOpenAIToolsAgent, AgentExecutor } from "langchain/agents";
 import { z } from "zod";
 import { DynamicStructuredTool } from "@langchain/core/tools";
+import { AgentStep } from "@langchain/core/agents";
 
-// --- Definición de la herramienta ---
+// --- Definición de la herramienta (sin cambios) ---
 const capitalCityTool = new DynamicStructuredTool({
   name: "get_capital_city",
   description: "Devuelve la capital de un país.",
@@ -34,17 +32,20 @@ const capitalCityTool = new DynamicStructuredTool({
   },
 });
 
-// --- Estado y nodo ---
+// --- Estado y Nodo ---
+// Se actualiza 'steps' al tipo correcto 'AgentStep'
 interface AgentState {
   input: string;
   chat_history: BaseMessage[];
   agent_outcome: any;
-  steps: Array<any>;
+  steps: AgentStep[];
 }
 
+// El nodo ahora usa las abstracciones de alto nivel de LangChain correctamente
 async function runAgentNode(state: AgentState) {
   const { input, chat_history } = state;
   const tools = [capitalCityTool];
+  // Asegúrate de tener la variable de entorno OPENAI_API_KEY configurada
   const llm = new ChatOpenAI({ modelName: "gpt-4-turbo", temperature: 0 });
 
   const agentPrompt = ChatPromptTemplate.fromMessages([
@@ -54,53 +55,46 @@ async function runAgentNode(state: AgentState) {
     new MessagesPlaceholder("agent_scratchpad"),
   ]);
 
-  // Runnable que convierte promptValue a { messages: [...] }
-  const promptToMessagesRunnable = RunnableLambda.from(async (promptValue: any) => ({
-    messages: await agentPrompt.format(promptValue),
-  }));
+  // 'createOpenAIToolsAgent' crea el agente runnable con el formato correcto
+  const agent = await createOpenAIToolsAgent({
+    llm,
+    tools,
+    prompt: agentPrompt,
+  });
 
-  // Obtenemos el runnable directamente sin .toRunnable()
-  const llmRunnable = llm.bindTools(tools);
+  const agentExecutor = new AgentExecutor({
+    agent,
+    tools,
+  });
 
-  // Secuencia que primero convierte el prompt y luego ejecuta el LLM con herramientas
-  const agentWithTools = RunnableSequence.from([
-    promptToMessagesRunnable,
-    llmRunnable,
-  ]);
-
-  const agent = RunnableSequence.from([
-    {
-      input: (i: { input: string; steps: BaseMessage[]; chat_history: BaseMessage[] }) => i.input,
-      agent_scratchpad: (i: { input: string; steps: BaseMessage[]; chat_history: BaseMessage[] }) =>
-        formatToOpenAIToolMessages(i.steps),
-      chat_history: (i: { input: string; steps: BaseMessage[]; chat_history: BaseMessage[] }) => i.chat_history,
-    },
-    agentWithTools,
-    new OpenAIToolsAgentOutputParser(),
-  ]);
-
-  const agentExecutor = new AgentExecutor({ agent, tools });
+  // 'invoke' del executor ya maneja los pasos (steps) internamente
   const result = await agentExecutor.invoke({
     input,
     chat_history,
-    steps: [],
   });
 
   return { agent_outcome: result.output };
 }
 
-// --- Grafo ---
+// --- Grafo (sin cambios) ---
 const workflow = new StateGraph<AgentState>({
   channels: {
     input: { value: (x, y) => y },
-    chat_history: { value: (x, y) => y },
+    chat_history: {
+        // Asegura que el historial de chat se acumule correctamente si es necesario
+        value: (x, y) => x.concat(y),
+        default: () => [],
+    },
     agent_outcome: { value: (x, y) => y },
+    // 'steps' ahora se alinea con el tipo AgentStep
     steps: { value: (x, y) => x.concat(y), default: () => [] },
   },
 });
 
 workflow.addNode("agent", runAgentNode);
-workflow.setEntryPoint(START);
+
+// Define el punto de entrada para el grafo.
+// START es una constante exportada por @langchain/langgraph
 workflow.addEdge(START, "agent");
 workflow.addEdge("agent", END);
 
