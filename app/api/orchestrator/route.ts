@@ -1,34 +1,63 @@
 import { NextResponse } from 'next/server';
-import { AIMessage, HumanMessage } from "@langchain/core/messages";
-import { orchestratorApp } from "@/lib/graphs/orchestrator";
+import { orchestratorApp } from '@/lib/graphs/orchestrator';
+import { AIMessage, HumanMessage } from '@langchain/core/messages';
 
-export const dynamic = 'force-dynamic';
+// Se establece el runtime de Vercel en 'edge' para un streaming más rápido.
+export const runtime = 'edge';
 
 export async function POST(req: Request) {
-  console.log("--- Petición de Chat (Prueba JSON) ---");
-
   try {
     const { messages } = await req.json();
-    console.log("Invocando el grafo simplificado con el último mensaje:", messages[messages.length - 1].content);
 
-    const langChainMessages = messages.map((m: any) => {
-      return m.role === "user" ? new HumanMessage(m.content) : new AIMessage(m.content);
+    const convertedMessages = messages.map((m: any) =>
+      m.role === 'user'
+        ? new HumanMessage(m.content)
+        : new AIMessage(m.content)
+    );
+
+    // Se crea un stream de respuesta que el frontend puede consumir.
+    const stream = new ReadableStream({
+      async start(controller) {
+        // Callback para encolar los trozos de texto en el stream.
+        const streamCallback = (chunk: string) => {
+          controller.enqueue(new TextEncoder().encode(chunk));
+        };
+
+        // Se invoca el grafo con .streamEvents() para capturar los eventos en tiempo real.
+        const eventStream = await orchestratorApp.streamEvents(
+          {
+            messages: convertedMessages,
+          },
+          { version: 'v1' }
+        );
+
+        // Se itera sobre los eventos del grafo.
+        for await (const event of eventStream) {
+          const eventName = event.event;
+          
+          // Nos interesa el evento que contiene los trozos de la respuesta del LLM.
+          if (eventName === 'on_chat_model_stream') {
+            const content = event.data.chunk?.content;
+            if (content) {
+              // Se envía cada trozo al frontend a medida que llega.
+              streamCallback(content);
+            }
+          }
+        }
+        // Se cierra el stream cuando el grafo termina.
+        controller.close();
+      },
     });
-    
-    const chainResponse = await orchestratorApp.invoke({ messages: langChainMessages });
 
-    const lastMessage = chainResponse.messages[chainResponse.messages.length - 1] as AIMessage;
-    const responseContent = lastMessage.content as string;
-    
-    console.log("Respuesta generada por el grafo:", responseContent);
-
-    // DEVOLVEMOS UNA RESPUESTA JSON EN LUGAR DE UN STREAM
-    return NextResponse.json({
-      response: responseContent
+    // Se devuelve el stream como respuesta.
+    return new Response(stream, {
+      headers: {
+        'Content-Type': 'text/plain; charset=utf-8',
+      },
     });
 
-  } catch (error: any) {
-    console.error("ERROR en la ruta del orquestador:", error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  } catch (e: any) {
+    console.error("Error en el orquestador:", e);
+    return NextResponse.json({ error: e.message }, { status: 500 });
   }
 }
