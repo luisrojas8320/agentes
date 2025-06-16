@@ -9,11 +9,20 @@ import ChatMessage from "@/components/ChatMessage";
 import { useState } from "react";
 
 export default function HomePage() {
-  const { messages, input, handleInputChange, handleSubmit, isLoading } = useChat({
-    // CORRECCIÓN: Apuntamos al endpoint unificado y correcto.
+  // CORRECCIÓN: Obtenemos la función 'append' del hook.
+  const { messages, input, handleInputChange, handleSubmit, isLoading, append } = useChat({
     api: "/api/chat",
   });
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+
+  // CORRECCIÓN: Nueva función para manejar los clics en los botones de sugerencia.
+  const handleSuggestionClick = (suggestion: string) => {
+    const content = `Por favor, inicia la tarea de "${suggestion}".`;
+    append({
+      role: 'user',
+      content: content,
+    });
+  };
 
   return (
     <div className="flex h-screen bg-[#181818] text-white">
@@ -31,14 +40,12 @@ export default function HomePage() {
             </Button>
         </header>
         
-        {/* Sidebar para móviles (cuando está abierta) */}
         {isSidebarOpen && (
             <div className="md:hidden">
                 <Sidebar />
             </div>
         )}
 
-        {/* Área de la conversación */}
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           {messages.length > 0 ? (
             messages.map((m) => <ChatMessage key={m.id} message={m} />)
@@ -52,24 +59,24 @@ export default function HomePage() {
           )}
         </div>
 
-        {/* Área del input */}
         <div className="p-4 md:p-8 border-t border-gray-700">
           <div className="w-full max-w-3xl mx-auto">
              <div className="flex items-center gap-4 mb-4 flex-wrap">
-                <Button variant="secondary" className="bg-[#222222] hover:bg-[#2a2a2a]">
+                {/* CORRECCIÓN: Se añade el evento onClick a cada botón */}
+                <Button onClick={() => handleSuggestionClick("Crear")} variant="secondary" className="bg-[#222222] hover:bg-[#2a2a2a]">
                   <Wand2 className="mr-2 h-4 w-4" /> Crear
                 </Button>
-                <Button variant="secondary" className="bg-[#222222] hover:bg-[#2a2a2a]">
+                <Button onClick={() => handleSuggestionClick("Analizar")} variant="secondary" className="bg-[#222222] hover:bg-[#2a2a2a]">
                   <ScanSearch className="mr-2 h-4 w-4" /> Analizar
                 </Button>
-                <Button variant="secondary" className="bg-[#222222] hover:bg-[#2a2a2a]">
+                <Button onClick={() => handleSuggestionClick("Investigación")} variant="secondary" className="bg-[#222222] hover:bg-[#2a2a2a]">
                   Investigación
                 </Button>
              </div>
              <form onSubmit={handleSubmit} className="w-full bg-[#111111] border border-gray-700 rounded-lg p-4">
                 <Textarea
                   className="bg-transparent border-0 text-base resize-none focus:ring-0 focus-visible:ring-offset-0 focus-visible:ring-0"
-                  placeholder="Asigna una tarea o pregunta cualquier cosa"
+                  placeholder="O asigna una tarea más detallada aquí..."
                   rows={4}
                   value={input}
                   onChange={handleInputChange}
@@ -92,7 +99,7 @@ export default function HomePage() {
                       <Mic className="h-5 w-5" />
                     </Button>
                     <Button type="submit" disabled={isLoading} className="bg-blue-600 hover:bg-blue-700">
-                      {isLoading ? 'Pensando...' : 'Crear'}
+                      {isLoading ? 'Pensando...' : 'Enviar'}
                     </Button>
                   </div>
                 </div>
