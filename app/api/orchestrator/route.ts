@@ -1,40 +1,59 @@
-import { StreamingTextResponse, LangChainAdapter } from "ai";
+import { StreamingTextResponse } from "ai";
 import { AIMessage, HumanMessage } from "@langchain/core/messages";
 import { orchestratorApp } from "@/lib/graphs/orchestrator";
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: Request) {
-  const { messages } = await req.json();
+  console.log("-----------------------------------------");
+  console.log("[API /orchestrator] Petición recibida.");
 
-  // Mapeamos los mensajes del historial al formato que espera LangChain.
-  const langChainMessages = messages.map((m: any) => {
-    if (m.role === "user") {
-      return new HumanMessage(m.content);
+  try {
+    const { messages } = await req.json();
+    console.log(`[API /orchestrator] Mensajes recibidos: ${messages.length}`);
+    console.log("[API /orchestrator] Último mensaje de usuario:", messages[messages.length - 1].content);
+
+    const langChainMessages = messages.map((m: any) => {
+      return m.role === "user" ? new HumanMessage(m.content) : new AIMessage(m.content);
+    });
+
+    console.log("[API /orchestrator] Iniciando invocación del grafo orquestador...");
+    const chainResponse = await orchestratorApp.invoke({ messages: langChainMessages });
+    console.log("[API /orchestrator] El grafo orquestador ha finalizado.");
+
+    if (!chainResponse || !chainResponse.messages || chainResponse.messages.length === 0) {
+      console.error("[API /orchestrator] ERROR: La respuesta del grafo está vacía o es inválida.");
+      throw new Error("La respuesta del grafo orquestador está vacía.");
     }
-    if (m.role === "assistant") {
-      return new AIMessage(m.content);
+
+    const lastMessage = chainResponse.messages[chainResponse.messages.length - 1];
+    console.log("[API /orchestrator] Último mensaje de la cadena:", lastMessage);
+    
+    if (!(lastMessage instanceof AIMessage) || typeof lastMessage.content !== 'string') {
+        console.error("[API /orchestrator] ERROR: La respuesta final no es un AIMessage con contenido de texto.");
+        throw new Error("El agente no produjo una respuesta final de texto válida.");
     }
-    // Podríamos añadir más tipos si el orquestador los manejara (ej. ToolMessage)
-    return new HumanMessage(m.content);
-  });
-  
-  // Invocamos el grafo orquestador con el historial de mensajes.
-  const chainResponse = await orchestratorApp.invoke({ messages: langChainMessages });
 
-  // Obtenemos la última respuesta del supervisor (el cerebro).
-  // La respuesta final DEBE ser un AIMessage con contenido de texto.
-  const lastMessage = chainResponse.messages[chainResponse.messages.length - 1] as AIMessage;
-  const responseContent = lastMessage.content;
+    const responseContent = lastMessage.content;
+    console.log("[API /orchestrator] Respuesta final para el usuario:", responseContent);
 
-  // Creamos un stream de texto simple con la respuesta final.
-  // En flujos más complejos, podríamos hacer stream de la salida del LLM directamente.
-  const stream = new ReadableStream({
-    start(controller) {
-      controller.enqueue(responseContent);
-      controller.close();
-    },
-  });
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(responseContent);
+        controller.close();
+      },
+    });
 
-  return new StreamingTextResponse(stream);
+    console.log("[API /orchestrator] Devolviendo respuesta al cliente.");
+    console.log("-----------------------------------------");
+    return new StreamingTextResponse(stream);
+
+  } catch (error: any) {
+    console.error("[API /orchestrator] ERROR CATASTRÓFICO:", error);
+    console.log("-----------------------------------------");
+    return new Response(JSON.stringify({ error: error.message }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
 }
