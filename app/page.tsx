@@ -1,127 +1,65 @@
-// Ruta: app/page.tsx
+"use client";
 
-"use client"
-
-import { useEffect, useState } from "react"
-import { useRouter } from "next/navigation"
-import { useAuth } from "@/contexts/AuthContext"
-// <-- CORRECCIÓN: Importar la nueva función para crear el cliente
-import { createClient } from "@/utils/supabase/client"
-import AgentItem from "@/components/AgentItem"
-import { useToast } from "@/components/ui/use-toast"
-import { Button } from "@/components/ui/button"
-import { LogOut } from "lucide-react"
-
-interface Agent {
-  id: string
-  name: string
-  description: string
-}
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { Code, Link, Mic, Play, ScanSearch, Wand2 } from "lucide-react";
+import Sidebar from "@/components/Sidebar";
 
 export default function HomePage() {
-  // <-- CORRECCIÓN: Crear una instancia del cliente de Supabase
-  const supabase = createClient()
-
-  const { user, loading } = useAuth()
-  const router = useRouter()
-  const [mounted, setMounted] = useState(false)
-  const [agents, setAgents] = useState<Agent[]>([])
-  const [agentsLoading, setAgentsLoading] = useState(true)
-  const { toast } = useToast()
-
-  const handleSignOut = async () => {
-    await supabase.auth.signOut()
-    router.push("/login")
-  }
-
-  useEffect(() => {
-    setMounted(true)
-  }, [])
-
-  useEffect(() => {
-    if (mounted && !loading && !user) {
-      router.push("/login")
-    }
-  }, [user, loading, router, mounted])
-
-  useEffect(() => {
-    if (!user) {
-      setAgentsLoading(false)
-      return
-    }
-
-    const fetchAgents = async () => {
-      try {
-        const { data, error } = await supabase.from("agents").select("*")
-
-        if (error) {
-          throw error
-        }
-
-        if (data) {
-          setAgents(data as Agent[])
-        }
-
-      } catch (error: any) {
-        console.error("Error fetching agents:", error)
-        toast({
-          title: "Error",
-          description: "Failed to load agents. Please try again.",
-          variant: "destructive",
-        })
-      } finally {
-        setAgentsLoading(false)
-      }
-    }
-
-    fetchAgents()
-    // <-- CORRECCIÓN: Añadir supabase a las dependencias del efecto
-  }, [user, toast, supabase])
-
-  if (!mounted || loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-gray-900"></div>
-      </div>
-    )
-  }
-
-  if (!user) {
-    return null
-  }
-
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-white shadow">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
-          <h1 className="text-xl font-semibold">AI Playground</h1>
-          <Button variant="outline" size="sm" onClick={handleSignOut}>
-            <LogOut className="h-4 w-4 mr-2" />
-            Sign Out
-          </Button>
-        </div>
-      </header>
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        {agentsLoading ? (
-          <div className="flex justify-center items-center h-64">
-            <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-gray-900"></div>
+    <div className="flex h-screen bg-[#181818] text-white">
+      <Sidebar />
+      <main className="flex-1 flex flex-col items-center justify-center p-8">
+        <div className="w-full max-w-3xl flex flex-col items-center">
+          <div className="text-center mb-8">
+            <h1 className="text-5xl font-bold">Hola Luis Rojas</h1>
+            <p className="text-gray-400 text-xl mt-2">¿Qué puedo hacer por ti?</p>
           </div>
-        ) : agents.length === 0 ? (
-          <div className="text-center py-10">
-            <h2 className="text-xl font-semibold mb-2">No Agents Available</h2>
-            <p className="text-gray-600">Add agents to your Supabase "agents" table.</p>
-          </div>
-        ) : (
-          <div>
-            <h2 className="text-2xl font-bold mb-6">Available AI Agents</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {agents.map((agent) => (
-                <AgentItem key={agent.id} agent={agent} />
-              ))}
+
+          <div className="w-full bg-[#111111] border border-gray-700 rounded-lg p-4">
+            <Textarea
+              className="bg-transparent border-0 text-base resize-none focus:ring-0 focus-visible:ring-offset-0 focus-visible:ring-0"
+              placeholder="Asigna una tarea o pregunta cualquier cosa"
+              rows={5}
+            />
+            <div className="flex justify-between items-center mt-4">
+              <div className="flex items-center gap-4">
+                <Button variant="ghost" size="icon" className="text-gray-400 hover:text-white">
+                  <Link className="h-5 w-5" />
+                </Button>
+                {/* Placeholder para otros botones de herramientas */}
+              </div>
+              <div className="flex items-center gap-4">
+                <span className="text-sm text-gray-500">816 + 300</span>
+                <Button variant="ghost" size="icon" className="text-gray-400 hover:text-white">
+                  <Mic className="h-5 w-5" />
+                </Button>
+                <Button className="bg-blue-600 hover:bg-blue-700">
+                  Crear
+                </Button>
+              </div>
             </div>
           </div>
-        )}
+
+          <div className="flex items-center gap-4 mt-8">
+            <Button variant="secondary" className="bg-[#222222] hover:bg-[#2a2a2a]">
+              <Wand2 className="mr-2 h-4 w-4" /> Crear
+            </Button>
+            <Button variant="secondary" className="bg-[#222222] hover:bg-[#2a2a2a]">
+              <ScanSearch className="mr-2 h-4 w-4" /> Analizar
+            </Button>
+            <Button variant="secondary" className="bg-[#222222] hover:bg-[#2a2a2a]">
+              Investigación
+            </Button>
+            <Button variant="secondary" className="bg-[#222222] hover:bg-[#2a2a2a]">
+              <Code className="mr-2 h-4 w-4" /> Código
+            </Button>
+            <Button variant="secondary" className="bg-[#222222] hover:bg-[#2a2a2a]">
+              <Play className="mr-2 h-4 w-4" /> Playbook
+            </Button>
+          </div>
+        </div>
       </main>
     </div>
-  )
+  );
 }
