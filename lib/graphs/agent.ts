@@ -1,4 +1,4 @@
-import { StateGraph, END, START } from "@langchain/langgraph";
+import { StateGraph, END } from "@langchain/langgraph";
 import { ChatOpenAI } from "@langchain/openai";
 import {
   ChatPromptTemplate,
@@ -10,7 +10,7 @@ import { z } from "zod";
 import { DynamicStructuredTool } from "@langchain/core/tools";
 import { AgentStep } from "@langchain/core/agents";
 
-// --- Definición de la herramienta (sin cambios) ---
+// --- Herramienta (sin cambios) ---
 const capitalCityTool = new DynamicStructuredTool({
   name: "get_capital_city",
   description: "Devuelve la capital de un país.",
@@ -71,7 +71,7 @@ async function runAgentNode(state: AgentState) {
   return { agent_outcome: result.output };
 }
 
-// --- Grafo (Sección modificada) ---
+// --- Grafo (sin cambios) ---
 const workflow = new StateGraph<AgentState>({
   channels: {
     input: { value: (x, y) => y },
@@ -84,14 +84,8 @@ const workflow = new StateGraph<AgentState>({
   },
 });
 
-// 1. Añadimos el nodo al grafo
 workflow.addNode("agent", runAgentNode);
-
-// 2. Definimos el punto de entrada del grafo de forma explícita
 workflow.setEntryPoint("agent");
-
-// 3. Definimos que después del nodo "agent", el grafo debe terminar
 workflow.addEdge("agent", END);
 
-// 4. Compilamos el grafo
 export const agentGraph = workflow.compile();
