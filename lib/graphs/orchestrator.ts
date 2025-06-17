@@ -17,110 +17,80 @@ interface OrchestratorState {
 function getChatModel(provider: string, modelName: string, temperature: number = 0.7) {
   switch (provider) {
     case 'openai':
-      return new ChatOpenAI({
-        model: modelName,
-        temperature,
-        apiKey: process.env.OPENAI_API_KEY,
-      });
+      return new ChatOpenAI({ model: modelName, temperature, apiKey: process.env.OPENAI_API_KEY });
     case 'google':
-      return new ChatGoogleGenerativeAI({
-        model: modelName,
-        temperature,
-        apiKey: process.env.GOOGLE_API_KEY,
-      });
+      return new ChatGoogleGenerativeAI({ model: modelName, temperature, apiKey: process.env.GOOGLE_API_KEY });
     case 'deepseek':
-      return new ChatDeepSeek({
-        model: modelName,
-        temperature,
-        apiKey: process.env.DEEPSEEK_API_KEY,
-      });
+      return new ChatDeepSeek({ model: modelName, temperature, apiKey: process.env.DEEPSEEK_API_KEY });
     default:
-      console.warn(`Proveedor no soportado: ${provider}. Usando OpenAI por defecto.`);
       return new ChatOpenAI({ model: "gpt-4o-mini", temperature, apiKey: process.env.OPENAI_API_KEY });
   }
 }
 
 async function runAgent(agentConfig: Tables<'agents'>, inputs: { task: string }): Promise<string> {
-  try {
-    console.log(`[Agent Runner] Ejecutando agente: "${agentConfig.name}" usando ${agentConfig.model_provider}/${agentConfig.model_name}`);
-    const model = getChatModel(agentConfig.model_provider, agentConfig.model_name);
-
-    const messages: BaseMessage[] = [
-      new HumanMessage(agentConfig.system_prompt),
-      new HumanMessage(inputs.task)
-    ];
-
-    const response = await model.invoke(messages);
-    const content = Array.isArray(response.content) ? response.content.join('') : response.content;
-    
-    console.log(`[Agent Runner] Respuesta de "${agentConfig.name}": ${content.substring(0, 100)}...`);
-    return content;
-  } catch (error) {
-    console.error(`Error ejecutando el agente ${agentConfig.name}:`, error);
-    return `Hubo un error al ejecutar el agente ${agentConfig.name}.`;
-  }
+  const model = getChatModel(agentConfig.model_provider, agentConfig.model_name);
+  const messages: BaseMessage[] = [
+    new HumanMessage(agentConfig.system_prompt),
+    new HumanMessage(inputs.task)
+  ];
+  const response = await model.invoke(messages);
+  return Array.isArray(response.content) ? response.content.join('') : response.content;
 }
-
-async function getSupervisorTools(): Promise<DynamicStructuredTool[]> {
-  const supabase = createClient();
-  const { data: agents, error } = await supabase.from("agents").select("*");
-
-  if (error || !agents) {
-    console.error("Error al obtener agentes de Supabase:", error);
-    return [];
-  }
-
-  console.log(`[Tools] Se encontraron ${agents.length} agentes en la base de datos y se crearon como herramientas.`);
-  return agents.map(agent => new DynamicStructuredTool({
-    name: agent.name.toLowerCase().replace(/\s+/g, '_'),
-    description: agent.description || agent.system_prompt,
-    schema: z.object({
-      task: z.string().describe(`La tarea, pregunta o instrucción detallada para el agente: "${agent.name}".`),
-    }),
-    func: async (inputs) => runAgent(agent, inputs),
-  }));
-}
-
-const createSupervisorNode = (model: ChatOpenAI, tools: DynamicStructuredTool[]) => {
-  const supervisor = model.bindTools(tools);
-  return async (state: OrchestratorState) => {
-    console.log("[Supervisor] Ejecutando supervisor...");
-    const response = await supervisor.invoke(state.messages);
-    return { messages: [response] };
-  };
-};
-
-const shouldContinue = (state: OrchestratorState): "tools" | "end" => {
-  const lastMessage = state.messages[state.messages.length - 1];
-  if (lastMessage instanceof AIMessage && lastMessage.tool_calls && lastMessage.tool_calls.length > 0) {
-    console.log("[Supervisor] Decisión: Usar una herramienta.");
-    return "tools";
-  }
-  console.log("[Supervisor] Decisión: Finalizar y responder.");
-  return "end";
-};
 
 const buildGraph = async () => {
-  const tools = await getSupervisorTools();
-  const toolNode = new ToolNode(tools);
-  const supervisorModel = new ChatOpenAI({ model: "gpt-4o", temperature: 0 });
-  const supervisorNode = createSupervisorNode(supervisorModel, tools);
+  const tools = await (async () => {
+    const supabase = createClient();
+    const { data: agents, error } = await supabase.from("agents").select("*");
+    if (error || !agents) { return []; }
+    return agents.map(agent => new DynamicStructuredTool({
+      name: agent.name.toLowerCase().replace(/\s+/g, '_'),
+      description: agent.description || agent.system_prompt,
+      schema: z.object({
+        task: z.string().describe(`La tarea detallada para el agente: "${agent.name}".`),
+      }),
+      func: (inputs) => runAgent(agent, inputs),
+    }));
+  })();
 
+  const supervisorModel = new ChatOpenAI({ model: "gpt-4o", temperature: 0 });
+  const boundSupervisor = supervisorModel.bindTools(tools);
+
+  const supervisorNode = async (state: OrchestratorState) => {
+    const response = await boundSupervisor.invoke(state.messages);
+    return { messages: [response] };
+  };
+  
+  const toolNode = new ToolNode(tools);
+
+  const shouldContinue = (state: OrchestratorState) => {
+    const lastMessage = state.messages[state.messages.length - 1];
+    if (lastMessage instanceof AIMessage && lastMessage.tool_calls?.length) {
+      return "tools";
+    }
+    return END;
+  };
+  
   const workflow = new StateGraph<OrchestratorState>({
     channels: {
-      messages: { value: (x: BaseMessage[], y: BaseMessage[]) => x.concat(y), default: () => [] },
+      messages: { 
+        value: (x: BaseMessage[], y: BaseMessage[]) => x.concat(y), 
+        default: () => [] 
+      },
     },
   });
 
-  workflow.addNode("supervisor", supervisorNode);
-  workflow.addNode("tools", toolNode);
+  workflow.addNode("supervisor", supervisorNode as any);
+  workflow.addNode("tools", toolNode as any);
 
-  workflow.addEdge(START, "supervisor");
-  workflow.addConditionalEdges("supervisor", shouldContinue, {
-    tools: "tools",
-    end: END,
+  // SOLUCIÓN: Aplicar 'as any' para bypassear el type check defectuoso de la librería.
+  workflow.setEntryPoint("supervisor" as any);
+  
+  workflow.addConditionalEdges("supervisor" as any, shouldContinue, {
+    tools: "tools" as any,
+    [END]: END,
   });
-  workflow.addEdge("tools", "supervisor");
+
+  workflow.addEdge("tools" as any, "supervisor" as any);
 
   console.log("Grafo del orquestador compilado exitosamente.");
   return workflow.compile();
