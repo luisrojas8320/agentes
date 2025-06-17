@@ -12,13 +12,7 @@ import { ChatDeepSeek } from '@langchain/deepseek';
 
 export const runtime = 'edge';
 
-// --- Caché en Memoria para Herramientas ---
-let cachedTools: DynamicStructuredTool[] | null = null;
-let lastCacheTime: number = 0;
-const CACHE_DURATION_MS = 5 * 60 * 1000; // 5 minutos
-
 function getChatModel(provider: string, modelName: string, temperature: number = 0.7) {
-  // ... (sin cambios en esta función)
   switch (provider) {
     case 'openai':
       return new ChatOpenAI({ model: modelName, temperature, apiKey: process.env.OPENAI_API_KEY });
@@ -32,7 +26,6 @@ function getChatModel(provider: string, modelName: string, temperature: number =
 }
 
 async function runAgent(agentConfig: Tables<'agents'>, inputs: { task: string }): Promise<string> {
-  // ... (sin cambios en esta función)
   const model = getChatModel(agentConfig.model_provider, agentConfig.model_name);
   const messages: BaseMessage[] = [
     new HumanMessage(agentConfig.system_prompt),
@@ -43,23 +36,21 @@ async function runAgent(agentConfig: Tables<'agents'>, inputs: { task: string })
 }
 
 async function getSupervisorTools() {
-  const now = Date.now();
-  // Si la caché es válida, la retornamos inmediatamente.
-  if (cachedTools && (now - lastCacheTime < CACHE_DURATION_MS)) {
-    console.log("Usando herramientas desde la caché.");
-    return cachedTools;
-  }
-  
-  console.log("Caché de herramientas expirada o inexistente. Obteniendo desde Supabase.");
   const supabase = createClient();
   const { data: agents, error } = await supabase.from("agents").select("*");
-
-  if (error || !agents) {
-    console.error("Error al obtener agentes de Supabase:", error);
-    return []; // Devuelve vacío pero no invalida la caché existente si la hay
+  
+  if (error) {
+    console.error("DIAGNÓSTICO: [1.1] Error al obtener agentes de Supabase:", error);
+    return [];
   }
 
-  const newTools = agents.map(agent => new DynamicStructuredTool({
+  if (!agents || agents.length === 0) {
+    console.warn("DIAGNÓSTICO: [1.2] No se encontraron agentes en la base de datos.");
+    return [];
+  }
+
+  console.log(`DIAGNÓSTICO: [1.3] Se encontraron ${agents.length} agentes. Creando herramientas.`);
+  return agents.map(agent => new DynamicStructuredTool({
     name: agent.name.toLowerCase().replace(/\s+/g, '_'),
     description: agent.description || agent.system_prompt,
     schema: z.object({
@@ -67,32 +58,40 @@ async function getSupervisorTools() {
     }),
     func: (inputs) => runAgent(agent, inputs),
   }));
-
-  // Actualizamos la caché.
-  cachedTools = newTools;
-  lastCacheTime = now;
-  
-  return newTools;
 }
 
 export async function POST(req: Request) {
   try {
+    console.log("DIAGNÓSTICO: [A] Petición POST recibida en /api/chat.");
     const { messages } = await req.json();
+
     const convertedMessages: BaseMessage[] = messages.map((m: any) =>
       m.role === 'user' ? new HumanMessage(m.content) : new AIMessage(m.content)
     );
-
-    const tools = await getSupervisorTools();
-    const graph = createOrchestratorGraph(tools);
+    console.log("DIAGNÓSTICO: [B] Mensajes convertidos.");
 
     const stream = new ReadableStream({
       async start(controller) {
+        console.log("DIAGNÓSTICO: [C] Entrando a la función start del ReadableStream.");
         try {
+          const tools = await getSupervisorTools();
+          console.log(`DIAGNÓSTICO: [D] Herramientas obtenidas. Número de herramientas: ${tools.length}`);
+          
+          if (tools.length === 0) {
+             console.error("DIAGNÓSTICO: [D.1] No hay herramientas para el supervisor. El grafo no puede funcionar.");
+          }
+
+          const graph = createOrchestratorGraph(tools);
+          console.log("DIAGNÓSTICO: [E] Grafo creado.");
+
           const eventStream = await graph.streamEvents(
             { messages: convertedMessages },
             { version: 'v2' }
           );
+          console.log("DIAGNÓSTICO: [F] streamEvents invocado. Esperando eventos...");
+
           for await (const event of eventStream) {
+            console.log(JSON.stringify(event, null, 2));
             if (event.event === 'on_chat_model_stream') {
               const chunk = event.data.chunk as AIMessage;
               if (event.name === 'supervisor' && !chunk.tool_calls?.length && typeof chunk.content === 'string') {
@@ -100,9 +99,12 @@ export async function POST(req: Request) {
               }
             }
           }
+          console.log("DIAGNÓSTICO: [H] Bucle de eventos finalizado.");
+
         } catch (e: any) {
-          console.error("Error dentro del stream:", e.message);
+          console.error("DIAGNÓSTICO: [ERR] Error fatal dentro del stream:", e.message, e.stack);
         } finally {
+          console.log("DIAGNÓSTICO: [I] Cerrando el controller del stream.");
           controller.close();
         }
       },
@@ -111,8 +113,9 @@ export async function POST(req: Request) {
     return new Response(stream, {
       headers: { 'Content-Type': 'text/plain; charset=utf-8' },
     });
+
   } catch (e: any) {
-    console.error("Error en la ruta POST de chat:", e.message);
+    console.error("DIAGNÓSTICO: [ERR] Error fatal en la ruta POST:", e.message, e.stack);
     return NextResponse.json({ error: e.message }, { status: 500 });
   }
 }
