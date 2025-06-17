@@ -7,7 +7,7 @@ from langchain_deepseek import ChatDeepSeek
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain.agents import AgentExecutor, create_tool_calling_agent
-from langchain_community.tools import create_tool
+from langchain_core.tools import DynamicStructuredTool
 from supabase.client import create_client, Client
 from pydantic import BaseModel, Field
 from typing import Type
@@ -59,20 +59,15 @@ def get_chat_model(provider: str, model_name: str, temperature: float = 0.7):
 def run_specialist_agent(agent_config: dict, task_content: str):
     """
     Ejecuta un agente especializado usando su configuración y la tarea recibida.
-    Esta función ahora espera 'task_content' como una cadena directamente.
     """
     try:
         model = get_chat_model(agent_config['model_provider'], agent_config['model_name'])
-        
         system_prompt = agent_config.get('system_prompt', "Eres un asistente especializado.")
-        
         messages = [
             SystemMessage(content=system_prompt),
             HumanMessage(content=task_content)
         ]
-        print(f"DEBUG: Invocando agente '{agent_config['name']}' con tarea: '{task_content}'")
         result = model.invoke(messages)
-        print(f"DEBUG: Agente '{agent_config['name']}' respondió: {result.content[:100]}...")
         return result.content
     except Exception as e:
         print(f"ERROR: Fallo al ejecutar agente especializado '{agent_config['name']}': {e}")
@@ -83,7 +78,7 @@ def run_specialist_agent(agent_config: dict, task_content: str):
 def get_specialist_agents_as_tools(supabase: Client):
     """
     Obtiene la configuración de los agentes especializados desde Supabase
-    y los convierte en herramientas de LangChain.
+    y los convierte en herramientas de LangChain usando DynamicStructuredTool.
     """
     response = supabase.from_("agents").select("*").neq("name", "Asistente Orquestador").execute()
     tools = []
@@ -95,13 +90,10 @@ def get_specialist_agents_as_tools(supabase: Client):
         class ToolSchema(BaseModel):
             task: str = Field(description=f"La tarea específica o pregunta detallada para el agente '{agent_config['name']}'.")
 
-        def tool_func(task: str, config=agent_config):
-            return run_specialist_agent(config, task)
-
-        tool = create_tool(
+        tool = DynamicStructuredTool(
             name=agent_config['name'].lower().replace(' ', '_'),
-            description=f"Agente especializado en: {agent_config['description']}. Úsalo para...",
-            func=tool_func,
+            description=f"Agente especializado en: {agent_config['description']}. Úsalo para tareas relacionadas con este tema.",
+            func=lambda task, cfg=agent_config: run_specialist_agent(cfg, task),
             args_schema=ToolSchema
         )
         tools.append(tool)
@@ -137,15 +129,12 @@ def chat_handler():
         
         agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
         
-        print(f"DEBUG: Mensaje de usuario recibido: {user_message_content}")
-        
         result = agent_executor.invoke({
             "input": user_message_content,
             "chat_history": []
         })
         
         response_content = result.get('output', 'No se pudo generar una respuesta.')
-        print(f"DEBUG: Respuesta final del orquestador: {response_content[:100]}...")
         
         return jsonify({"response": response_content})
 
