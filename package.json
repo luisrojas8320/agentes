@@ -3,12 +3,13 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-  "dev": "next dev",
-  "build": "node ./scripts/cache-agents.mjs && next build",
-  "start": "next start",
-  "lint": "next lint"
+    "dev": "next dev",
+    "build": "node ./scripts/cache-agents.mjs && next build",
+    "start": "next start",
+    "lint": "next lint"
   },
   "dependencies": {
+    "@ai-sdk/langchain": "^1.0.0-canary.12",
     "@google/generative-ai": "^0.15.0",
     "@hookform/resolvers": "^5.1.1",
     "@langchain/community": "^0.3.46",
@@ -47,7 +48,7 @@
     "@radix-ui/react-tooltip": "^1.2.7",
     "@supabase/ssr": "^0.4.0",
     "@supabase/supabase-js": "^2.50.0",
-    "ai": "^3.2.19",
+    "ai": "^3.4.33",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
