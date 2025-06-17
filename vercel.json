@@ -5,18 +5,14 @@
       "use": "@vercel/python"
     },
     {
-      "src": "next.config.mjs",
+      "src": "package.json",
       "use": "@vercel/next"
     }
   ],
   "routes": [
     {
       "src": "/api/chat",
-      "dest": "/api/index.py"
-    },
-    {
-      "src": "/(.*)",
-      "dest": "/next.config.mjs"
+      "dest": "api/index.py"
     }
   ]
 }
