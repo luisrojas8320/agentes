@@ -7,7 +7,7 @@ from langchain_deepseek import ChatDeepSeek
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain.agents import AgentExecutor, create_tool_calling_agent
-from langchain_core.tools import DynamicStructuredTool
+from langchain.tools import StructuredTool
 from supabase.client import create_client, Client
 from pydantic import BaseModel, Field
 from typing import Type
@@ -78,7 +78,7 @@ def run_specialist_agent(agent_config: dict, task_content: str):
 def get_specialist_agents_as_tools(supabase: Client):
     """
     Obtiene la configuración de los agentes especializados desde Supabase
-    y los convierte en herramientas de LangChain usando DynamicStructuredTool.
+    y los convierte en herramientas de LangChain usando StructuredTool.
     """
     response = supabase.from_("agents").select("*").neq("name", "Asistente Orquestador").execute()
     tools = []
@@ -90,10 +90,10 @@ def get_specialist_agents_as_tools(supabase: Client):
         class ToolSchema(BaseModel):
             task: str = Field(description=f"La tarea específica o pregunta detallada para el agente '{agent_config['name']}'.")
 
-        tool = DynamicStructuredTool(
+        tool = StructuredTool.from_function(
+            func=lambda task, cfg=agent_config: run_specialist_agent(cfg, task),
             name=agent_config['name'].lower().replace(' ', '_'),
             description=f"Agente especializado en: {agent_config['description']}. Úsalo para tareas relacionadas con este tema.",
-            func=lambda task, cfg=agent_config: run_specialist_agent(cfg, task),
             args_schema=ToolSchema
         )
         tools.append(tool)
