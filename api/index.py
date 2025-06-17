@@ -9,7 +9,7 @@ from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain.agents import AgentExecutor, create_tool_calling_agent
 from langchain_core.tools import DynamicStructuredTool
 from supabase.client import create_client, Client
-from zod import z
+from pydantic import BaseModel, Field # CORRECCIÓN: Se importa BaseModel de Pydantic
 
 # Cargar variables de entorno
 load_dotenv()
@@ -28,41 +28,41 @@ def get_chat_model(provider, model_name, temperature=0.7):
     api_key = os.environ.get(f"{provider.upper()}_API_KEY")
     if provider == "openai":
         return ChatOpenAI(model=model_name, temperature=temperature, api_key=api_key)
-    elif provider == "google":
+    if provider == "google":
         return ChatGoogleGenerativeAI(model=model_name, temperature=temperature, api_key=api_key)
-    elif provider == "deepseek":
+    if provider == "deepseek":
         return ChatDeepSeek(model=model_name, temperature=temperature, api_key=api_key)
-    else:
-        return ChatOpenAI(model="gpt-4o-mini", temperature=temperature, api_key=os.environ.get("OPENAI_API_KEY"))
+    return ChatOpenAI(model="gpt-4o-mini", temperature=temperature, api_key=os.environ.get("OPENAI_API_KEY"))
+
+# --- Lógica para Ejecutar un Agente Especializado ---
+def run_specialist_agent(agent_config, task_input):
+    model = get_chat_model(agent_config['model_provider'], agent_config['model_name'])
+    # La tarea viene en un diccionario, extraemos el valor 'task'
+    task_content = task_input.get('task', '')
+    messages = [SystemMessage(content=agent_config['system_prompt']), HumanMessage(content=task_content)]
+    result = model.invoke(messages)
+    return result.content
 
 # --- Creador de Herramientas (Agentes Especializados) ---
 def get_specialist_agents_as_tools(supabase: Client):
-    response = supabase.from_("agents").select("*").execute()
+    response = supabase.from_("agents").select("*").neq("name", "Asistente Orquestador").execute()
+    tools = []
     if not response.data:
         return []
 
-    tools = []
     for agent_config in response.data:
+        # CORRECCIÓN: Se define el esquema de argumentos con Pydantic
+        class ToolSchema(BaseModel):
+            task: str = Field(description=f"La tarea específica o pregunta detallada para el agente '{agent_config['name']}'.")
+
         tool = DynamicStructuredTool(
             name=agent_config['name'].lower().replace(' ', '_'),
-            description=f"Agente especializado en: {agent_config['description']}. Úsalo para tareas relacionadas.",
-            args_schema=z.object(
-                task=z.string().describe(f"La tarea específica o pregunta detallada para el agente '{agent_config['name']}'.")
-            ),
-            func=lambda task: run_specialist_agent(agent_config, task)
+            description=f"Agente especializado en: {agent_config['description']}",
+            args_schema=ToolSchema,
+            func=lambda task, cfg=agent_config: run_specialist_agent(cfg, task)
         )
         tools.append(tool)
     return tools
-
-# --- Lógica para Ejecutar un Agente Especializado ---
-def run_specialist_agent(agent_config, task):
-    model = get_chat_model(agent_config['model_provider'], agent_config['model_name'])
-    messages = [
-        SystemMessage(content=agent_config['system_prompt']),
-        HumanMessage(content=task)
-    ]
-    result = model.invoke(messages)
-    return result.content
 
 # --- API Endpoint Principal ---
 @app.route('/api/chat', methods=['POST'])
@@ -74,15 +74,8 @@ def chat_handler():
         supabase = create_supabase_client()
         tools = get_specialist_agents_as_tools(supabase)
         
-        # Si no hay herramientas/agentes, responde directamente
-        if not tools:
-            model = get_chat_model("openai", "gpt-3.5-turbo")
-            response = model.invoke(user_message_content)
-            return jsonify({"response": response.content})
-
-        # Configuración del Agente Orquestador/Supervisor
         prompt = ChatPromptTemplate.from_messages([
-            ("system", "Eres un agente orquestador. Tu función es analizar la petición del usuario y delegarla a la herramienta (agente especializado) más adecuada. Si ninguna herramienta es apropiada, responde directamente a la petición del usuario de la mejor manera posible."),
+            ("system", "Eres un agente orquestador. Tu función es analizar la petición del usuario y delegarla a la herramienta (agente especializado) más adecuada. Si ninguna herramienta es apropiada, responde directamente."),
             ("human", "{input}"),
             MessagesPlaceholder(variable_name="agent_scratchpad"),
         ])
@@ -92,9 +85,7 @@ def chat_handler():
         
         agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
         
-        result = agent_executor.invoke({
-            "input": user_message_content,
-        })
+        result = agent_executor.invoke({ "input": user_message_content })
         
         return jsonify({"response": result['output']})
 
