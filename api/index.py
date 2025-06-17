@@ -151,3 +151,7 @@ def chat_handler():
 def health_check():
     """Endpoint de salud para verificar que la aplicación Flask está funcionando."""
     return jsonify({"status": "ok"}), 200
+
+# Punto de entrada para Vercel
+# Esta variable 'app' es la que Vercel busca
+# NO agregar if __name__ == "__main__" para Vercel
