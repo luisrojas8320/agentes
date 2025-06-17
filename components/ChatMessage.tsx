@@ -1,6 +1,12 @@
-import { Message } from 'ai';
 import { User, Bot } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
+
+// Se define el tipo 'Message' localmente para no depender de la librería 'ai'
+interface Message {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+}
 
 interface ChatMessageProps {
   message: Message;

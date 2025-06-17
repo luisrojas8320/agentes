@@ -1,8 +1,0 @@
-# requirements.txt
-Flask
-python-dotenv
-langchain
-langchain-openai
-langchain-google-genai
-langchain-deepseek
-supabase

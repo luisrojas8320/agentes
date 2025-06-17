@@ -1,64 +1,46 @@
-// Ruta: components/AgentItem.tsx
-
 "use client"
 
 import { useRouter } from "next/navigation"
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { MessageSquare, Wrench } from "lucide-react" // Importar icono de herramienta
-import { createClient } from "@/utils/supabase/client"
-import { useAuth } from "@/contexts/AuthContext"
-import { useToast } from "@/components/ui/use-toast"
+import { MessageSquare, Wrench } from "lucide-react"
 
+// La definición de las propiedades del agente sigue siendo la misma.
 interface AgentItemProps {
   agent: {
     id: string
     name: string
     description: string
-    tool_url?: string | null; // <-- Propiedad opcional para la URL de la herramienta
+    tool_url?: string | null;
   }
 }
 
 export default function AgentItem({ agent }: AgentItemProps) {
-  const supabase = createClient()
   const router = useRouter()
-  const { user } = useAuth()
-  const { toast } = useToast()
 
-  const handleAction = async () => {
-    if (!user) {
-      toast({ title: "Error", description: "Debes iniciar sesión.", variant: "destructive" });
-      return;
-    }
-
-    // --- CORRECCIÓN: Lógica condicional ---
+  const handleAction = () => {
     // Si el agente tiene una URL de herramienta, navegar a ella.
     if (agent.tool_url) {
       router.push(agent.tool_url);
     } else {
-      // Si no, iniciar un chat como antes.
-      try {
-        const { data, error } = await supabase
-          .from("chats").insert({ user_id: user.id, agent_id: agent.id }).select().single();
-        if (error) throw error;
-        if (data) router.push(`/chat/${data.id}`);
-      } catch (error: any) {
-        toast({ title: "Error", description: "No se pudo iniciar el chat.", variant: "destructive" });
-      }
+      // CORRECCIÓN: Si no, simplemente navega a una nueva sesión de chat.
+      // La lógica para crear el chat en la base de datos ya no vive aquí.
+      // Se gestiona en la página principal o en la propia interfaz del chat.
+      const newChatId = `chat_${Date.now()}`;
+      router.push(`/chat/${newChatId}`);
     }
   }
 
   return (
-    <Card className="h-full flex flex-col">
+    <Card className="h-full flex flex-col bg-gray-800/20 border-gray-700 text-white">
       <CardHeader>
-        <CardTitle>{agent.name}</CardTitle>
+        <CardTitle className="text-white">{agent.name}</CardTitle>
       </CardHeader>
       <CardContent className="flex-grow">
-        <p className="text-gray-600">{agent.description}</p>
+        <p className="text-gray-400">{agent.description}</p>
       </CardContent>
       <CardFooter>
-        <Button onClick={handleAction} className="w-full">
-          {/* Mostrar un botón diferente si es una herramienta */}
+        <Button onClick={handleAction} className="w-full bg-blue-600 hover:bg-blue-700">
           {agent.tool_url ? (
             <>
               <Wrench className="h-4 w-4 mr-2" />
@@ -67,7 +49,7 @@ export default function AgentItem({ agent }: AgentItemProps) {
           ) : (
             <>
               <MessageSquare className="h-4 w-4 mr-2" />
-              Iniciar Chat
+              Conversar
             </>
           )}
         </Button>
