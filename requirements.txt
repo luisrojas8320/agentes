@@ -5,6 +5,6 @@ langchain-openai
 langchain-google-genai
 langchain-deepseek
 supabase
-langchain-agents
 pydantic
 gunicorn
+langgraph
