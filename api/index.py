@@ -7,10 +7,9 @@ from langchain_deepseek import ChatDeepSeek
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain.agents import AgentExecutor, create_tool_calling_agent
-# CORRECCIÓN: Importamos 'create_tool' en lugar de 'DynamicStructuredTool'
-from langchain_core.tools import create_tool, BaseTool, tool 
+from langchain.tools import create_tool
 from supabase.client import create_client, Client
-from pydantic import BaseModel, Field # Se importa BaseModel y Field de Pydantic
+from pydantic import BaseModel, Field
 from typing import Type
 
 # Cargar variables de entorno desde el archivo .env
@@ -93,16 +92,9 @@ def get_specialist_agents_as_tools(supabase: Client):
         return []
 
     for agent_config in response.data:
-        # Definimos el esquema de argumentos con Pydantic para la herramienta
-        # La clave 'task' en el esquema se mapeará a un argumento de palabra clave 'task'
-        # en la función 'func' de create_tool.
         class ToolSchema(BaseModel):
             task: str = Field(description=f"La tarea específica o pregunta detallada para el agente '{agent_config['name']}'.")
 
-        # Mejor práctica: Usar una función lambda o una función parcial para encapsular
-        # los argumentos dinámicos (agent_config) y que 'create_tool' reciba
-        # una función con una firma que coincida con el ToolSchema.
-        # La función 'tool_func' ahora espera 'task' como un argumento directo.
         def tool_func(task: str, config=agent_config):
             return run_specialist_agent(config, task)
 
@@ -123,7 +115,6 @@ def chat_handler():
     """
     try:
         data = request.get_json()
-        # Asegúrate de que el formato de los mensajes es el esperado
         messages = data.get('messages')
         if not messages:
             return jsonify({"error": "Formato de mensajes incorrecto o ausente."}), 400
@@ -133,32 +124,26 @@ def chat_handler():
         supabase = create_supabase_client()
         tools = get_specialist_agents_as_tools(supabase)
         
-        # El prompt del agente orquestador
         prompt = ChatPromptTemplate.from_messages([
             ("system", "Eres un agente orquestador. Tu función es analizar la petición del usuario y delegarla a la herramienta (agente especializado) más adecuada si existe. Si ninguna herramienta es apropiada, responde directamente a la pregunta del usuario de forma concisa. Siempre intenta utilizar las herramientas disponibles si la pregunta del usuario es clara y se ajusta a la descripción de alguna herramienta."),
-            MessagesPlaceholder(variable_name="chat_history"), # Para manejar historial si lo envías desde el frontend
+            MessagesPlaceholder(variable_name="chat_history"),
             ("human", "{input}"),
             MessagesPlaceholder(variable_name="agent_scratchpad"),
         ])
         
-        # Usamos el mismo LLM para el orquestador
-        llm = get_chat_model("openai", "gpt-4o-mini", temperature=0) # O el modelo que prefieras para la orquestación
+        llm = get_chat_model("openai", "gpt-4o-mini", temperature=0)
         
-        # Crear el agente que usa herramientas
         agent = create_tool_calling_agent(llm, tools, prompt)
         
-        # Configurar el AgentExecutor
-        agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True) # verbose=True es bueno para depuración
+        agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
         
         print(f"DEBUG: Mensaje de usuario recibido: {user_message_content}")
         
-        # Invocar el agente orquestador
         result = agent_executor.invoke({
             "input": user_message_content,
-            "chat_history": [] # Si no manejas historial en el backend, déjalo vacío o pásalo desde el frontend
+            "chat_history": []
         })
         
-        # Asegúrate de que 'output' es el campo correcto de la respuesta
         response_content = result.get('output', 'No se pudo generar una respuesta.')
         print(f"DEBUG: Respuesta final del orquestador: {response_content[:100]}...")
         
@@ -169,12 +154,10 @@ def chat_handler():
         return jsonify({"error": str(ve)}), 500
     except Exception as e:
         print(f"ERROR inesperado en el handler: {e}")
-        # Asegúrate de que el error se imprime para depuración en Vercel logs
         import traceback
         traceback.print_exc() 
         return jsonify({"error": "Ocurrió un error interno del servidor. Consulte los logs para más detalles."}), 500
 
-# Considera agregar un endpoint de salud para verificar que el servidor está corriendo
 @app.route('/health', methods=['GET'])
 def health_check():
     """Endpoint de salud para verificar que la aplicación Flask está funcionando."""
