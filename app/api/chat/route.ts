@@ -1,6 +1,7 @@
+// ruta: app/api/chat/route.ts
 import { NextResponse } from 'next/server';
 import { orchestratorApp } from '@/lib/graphs/orchestrator';
-import { AIMessage, HumanMessage } from '@langchain/core/messages';
+import { AIMessage, HumanMessage, BaseMessage } from '@langchain/core/messages';
 
 export const runtime = 'edge';
 
@@ -8,39 +9,38 @@ export async function POST(req: Request) {
   try {
     const { messages } = await req.json();
 
-    const convertedMessages = messages.map((m: any) =>
+    const convertedMessages: BaseMessage[] = messages.map((m: any) =>
       m.role === 'user'
         ? new HumanMessage(m.content)
         : new AIMessage(m.content)
     );
 
+    // Resuelve la promesa del grafo ANTES de usarla
+    const graph = await orchestratorApp;
+
     const stream = new ReadableStream({
       async start(controller) {
-        const streamCallback = (chunk: string) => {
-          try {
-            controller.enqueue(new TextEncoder().encode(chunk));
-          } catch (e) {
-            // Manejar el caso en que el stream ya se cerró
-          }
-        };
+        try {
+          const eventStream = await graph.streamEvents(
+            {
+              messages: convertedMessages,
+            },
+            { version: 'v2' } // Usa v2 para streamEvents
+          );
 
-        const eventStream = await orchestratorApp.streamEvents(
-          {
-            messages: convertedMessages,
-          },
-          { version: 'v1' }
-        );
-
-        for await (const event of eventStream) {
-          if (event.event === 'on_chat_model_stream') {
-            const chunk = event.data.chunk as AIMessage;
-            // Asegurarse de que solo se envían chunks de la respuesta final del supervisor
-            if (event.name === 'supervisor' && !chunk.tool_calls?.length && typeof chunk.content === 'string') {
-              streamCallback(chunk.content);
+          for await (const event of eventStream) {
+            if (event.event === 'on_chat_model_stream') {
+              const chunk = event.data.chunk as AIMessage;
+              if (event.name === 'supervisor' && !chunk.tool_calls?.length && typeof chunk.content === 'string') {
+                controller.enqueue(new TextEncoder().encode(chunk.content));
+              }
             }
           }
+        } catch (e) {
+          console.error("Error dentro del stream de ReadableStream:", e);
+        } finally {
+          controller.close();
         }
-        controller.close();
       },
     });
 
