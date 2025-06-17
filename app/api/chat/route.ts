@@ -12,8 +12,13 @@ import { ChatDeepSeek } from '@langchain/deepseek';
 
 export const runtime = 'edge';
 
-// La lógica para crear herramientas ahora vive aquí.
+// --- Caché en Memoria para Herramientas ---
+let cachedTools: DynamicStructuredTool[] | null = null;
+let lastCacheTime: number = 0;
+const CACHE_DURATION_MS = 5 * 60 * 1000; // 5 minutos
+
 function getChatModel(provider: string, modelName: string, temperature: number = 0.7) {
+  // ... (sin cambios en esta función)
   switch (provider) {
     case 'openai':
       return new ChatOpenAI({ model: modelName, temperature, apiKey: process.env.OPENAI_API_KEY });
@@ -27,6 +32,7 @@ function getChatModel(provider: string, modelName: string, temperature: number =
 }
 
 async function runAgent(agentConfig: Tables<'agents'>, inputs: { task: string }): Promise<string> {
+  // ... (sin cambios en esta función)
   const model = getChatModel(agentConfig.model_provider, agentConfig.model_name);
   const messages: BaseMessage[] = [
     new HumanMessage(agentConfig.system_prompt),
@@ -37,14 +43,23 @@ async function runAgent(agentConfig: Tables<'agents'>, inputs: { task: string })
 }
 
 async function getSupervisorTools() {
-  // Es seguro llamar a createClient() aquí porque estamos dentro de una petición.
+  const now = Date.now();
+  // Si la caché es válida, la retornamos inmediatamente.
+  if (cachedTools && (now - lastCacheTime < CACHE_DURATION_MS)) {
+    console.log("Usando herramientas desde la caché.");
+    return cachedTools;
+  }
+  
+  console.log("Caché de herramientas expirada o inexistente. Obteniendo desde Supabase.");
   const supabase = createClient();
   const { data: agents, error } = await supabase.from("agents").select("*");
+
   if (error || !agents) {
     console.error("Error al obtener agentes de Supabase:", error);
-    return [];
+    return []; // Devuelve vacío pero no invalida la caché existente si la hay
   }
-  return agents.map(agent => new DynamicStructuredTool({
+
+  const newTools = agents.map(agent => new DynamicStructuredTool({
     name: agent.name.toLowerCase().replace(/\s+/g, '_'),
     description: agent.description || agent.system_prompt,
     schema: z.object({
@@ -52,20 +67,22 @@ async function getSupervisorTools() {
     }),
     func: (inputs) => runAgent(agent, inputs),
   }));
+
+  // Actualizamos la caché.
+  cachedTools = newTools;
+  lastCacheTime = now;
+  
+  return newTools;
 }
 
 export async function POST(req: Request) {
   try {
     const { messages } = await req.json();
-
     const convertedMessages: BaseMessage[] = messages.map((m: any) =>
       m.role === 'user' ? new HumanMessage(m.content) : new AIMessage(m.content)
     );
 
-    // 1. Obtener las herramientas (que usan Supabase) dentro del scope de la petición.
     const tools = await getSupervisorTools();
-    
-    // 2. Construir el grafo con esas herramientas.
     const graph = createOrchestratorGraph(tools);
 
     const stream = new ReadableStream({
@@ -83,8 +100,8 @@ export async function POST(req: Request) {
               }
             }
           }
-        } catch (e) {
-          console.error("Error dentro del stream:", e);
+        } catch (e: any) {
+          console.error("Error dentro del stream:", e.message);
         } finally {
           controller.close();
         }
@@ -94,9 +111,8 @@ export async function POST(req: Request) {
     return new Response(stream, {
       headers: { 'Content-Type': 'text/plain; charset=utf-8' },
     });
-
   } catch (e: any) {
-    console.error("Error en la ruta POST de chat:", e);
+    console.error("Error en la ruta POST de chat:", e.message);
     return NextResponse.json({ error: e.message }, { status: 500 });
   }
 }
