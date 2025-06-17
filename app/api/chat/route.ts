@@ -7,8 +7,8 @@ import { z } from 'zod';
 import { ChatOpenAI } from '@langchain/openai';
 import { ChatGoogleGenerativeAI } from '@langchain/google-genai';
 import { ChatDeepSeek } from '@langchain/deepseek';
-import { CoreMessage, streamText } from 'ai';
-import { experimental_langchain_adapter } from '@ai-sdk/langchain';
+import { CoreMessage, streamText, tool } from 'ai';
+import { createOpenAI } from '@ai-sdk/openai';
 import { type SupabaseClient } from '@supabase/supabase-js';
 
 export const runtime = 'edge';
@@ -33,9 +33,10 @@ async function getSupervisorTools(supabase: SupabaseClient) {
     const { data: agents, error } = await supabase.from("agents").select("*");
     if (error || !agents) { 
         console.error("Error al obtener agentes:", error);
-        return []; 
+        return {}; 
     }
-    return agents.map(agent => new DynamicStructuredTool({
+    
+    const tools = agents.map(agent => new DynamicStructuredTool({
         name: agent.name.toLowerCase().replace(/\s+/g, '_'),
         description: agent.description || agent.system_prompt,
         schema: z.object({
@@ -43,6 +44,17 @@ async function getSupervisorTools(supabase: SupabaseClient) {
         }),
         func: (inputs) => runAgent(agent, inputs),
     }));
+
+    const vercelTools = tools.reduce((acc: any, toolInstance: any) => {
+        acc[toolInstance.name] = tool({
+            description: toolInstance.description,
+            parameters: toolInstance.schema,
+            execute: toolInstance.func
+        });
+        return acc;
+    }, {});
+
+    return vercelTools;
 }
 
 export async function POST(req: Request) {
@@ -50,21 +62,16 @@ export async function POST(req: Request) {
     const { messages }: { messages: CoreMessage[] } = await req.json();
     const supabase = createClient();
     
-    const supervisorLLM = new ChatOpenAI({
-      model: "gpt-4o",
-      temperature: 0,
-      apiKey: process.env.OPENAI_API_KEY,
+    const openai = createOpenAI({
+        apiKey: process.env.OPENAI_API_KEY,
     });
     
     const tools = await getSupervisorTools(supabase);
 
-    // Se utiliza el adaptador experimental para el modelo y las herramientas
-    const model = experimental_langchain_adapter.from(
-        supervisorLLM.bindTools(tools)
-    );
-
     const result = await streamText({
-      model: model,
+      model: openai('gpt-4o'),
+      tools: tools,
+      toolChoice: 'auto',
       messages: messages,
     });
 
