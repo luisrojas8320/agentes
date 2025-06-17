@@ -9,10 +9,12 @@ import { z } from 'zod';
 import { ChatOpenAI } from '@langchain/openai';
 import { ChatGoogleGenerativeAI } from '@langchain/google-genai';
 import { ChatDeepSeek } from '@langchain/deepseek';
+import { type SupabaseClient } from '@supabase/supabase-js';
 
 export const runtime = 'edge';
 
 function getChatModel(provider: string, modelName: string, temperature: number = 0.7) {
+  // ... (sin cambios)
   switch (provider) {
     case 'openai':
       return new ChatOpenAI({ model: modelName, temperature, apiKey: process.env.OPENAI_API_KEY });
@@ -26,6 +28,7 @@ function getChatModel(provider: string, modelName: string, temperature: number =
 }
 
 async function runAgent(agentConfig: Tables<'agents'>, inputs: { task: string }): Promise<string> {
+  // ... (sin cambios)
   const model = getChatModel(agentConfig.model_provider, agentConfig.model_name);
   const messages: BaseMessage[] = [
     new HumanMessage(agentConfig.system_prompt),
@@ -35,8 +38,10 @@ async function runAgent(agentConfig: Tables<'agents'>, inputs: { task: string })
   return Array.isArray(response.content) ? response.content.join('') : response.content;
 }
 
-async function getSupervisorTools() {
-  const supabase = createClient();
+// SOLUCIÓN: La función ahora acepta el cliente de Supabase como argumento.
+async function getSupervisorTools(supabase: SupabaseClient) {
+  console.log("DIAGNÓSTICO: [1] Entrando a getSupervisorTools.");
+  // Ya no crea su propio cliente, usa el que se le pasa.
   const { data: agents, error } = await supabase.from("agents").select("*");
   
   if (error) {
@@ -65,6 +70,9 @@ export async function POST(req: Request) {
     console.log("DIAGNÓSTICO: [A] Petición POST recibida en /api/chat.");
     const { messages } = await req.json();
 
+    // SOLUCIÓN: Crear el cliente de Supabase aquí, una sola vez.
+    const supabase = createClient();
+
     const convertedMessages: BaseMessage[] = messages.map((m: any) =>
       m.role === 'user' ? new HumanMessage(m.content) : new AIMessage(m.content)
     );
@@ -74,7 +82,8 @@ export async function POST(req: Request) {
       async start(controller) {
         console.log("DIAGNÓSTICO: [C] Entrando a la función start del ReadableStream.");
         try {
-          const tools = await getSupervisorTools();
+          // SOLUCIÓN: Pasar el cliente ya creado a la función.
+          const tools = await getSupervisorTools(supabase);
           console.log(`DIAGNÓSTICO: [D] Herramientas obtenidas. Número de herramientas: ${tools.length}`);
           
           if (tools.length === 0) {
