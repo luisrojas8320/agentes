@@ -7,7 +7,7 @@ from langchain_deepseek import ChatDeepSeek
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain.agents import AgentExecutor, create_tool_calling_agent
-from langchain.tools import create_tool
+from langchain_community.tools import create_tool
 from supabase.client import create_client, Client
 from pydantic import BaseModel, Field
 from typing import Type
@@ -72,7 +72,7 @@ def run_specialist_agent(agent_config: dict, task_content: str):
         ]
         print(f"DEBUG: Invocando agente '{agent_config['name']}' con tarea: '{task_content}'")
         result = model.invoke(messages)
-        print(f"DEBUG: Agente '{agent_config['name']}' respondió: {result.content[:100]}...") # Log de los primeros 100 caracteres
+        print(f"DEBUG: Agente '{agent_config['name']}' respondió: {result.content[:100]}...")
         return result.content
     except Exception as e:
         print(f"ERROR: Fallo al ejecutar agente especializado '{agent_config['name']}': {e}")
