@@ -4,6 +4,7 @@ langchain
 langchain-openai
 langchain-google-genai
 langchain-deepseek
+langchain-community
 supabase
 pydantic
 gunicorn
