@@ -7,9 +7,9 @@ import { z } from 'zod';
 import { ChatOpenAI } from '@langchain/openai';
 import { ChatGoogleGenerativeAI } from '@langchain/google-genai';
 import { ChatDeepSeek } from '@langchain/deepseek';
-import { streamText } from 'ai';
-// SOLUCIÓN: Importar el nombre correcto de la función de conversión.
-import { convertLangChainModelToVercelAI } from '@ai-sdk/langchain';
+import { CoreMessage, streamText } from 'ai';
+import { experimental_langchain_adapter } from '@ai-sdk/langchain';
+import { type SupabaseClient } from '@supabase/supabase-js';
 
 export const runtime = 'edge';
 
@@ -29,16 +29,17 @@ async function runAgent(agentConfig: Tables<'agents'>, inputs: { task: string })
     return Array.isArray(response.content) ? response.content.join('') : response.content;
 }
 
-async function getSupervisorTools() {
-    const supabase = createClient();
+async function getSupervisorTools(supabase: SupabaseClient) {
     const { data: agents, error } = await supabase.from("agents").select("*");
-    if (error || !agents) { return []; }
-
+    if (error || !agents) { 
+        console.error("Error al obtener agentes:", error);
+        return []; 
+    }
     return agents.map(agent => new DynamicStructuredTool({
         name: agent.name.toLowerCase().replace(/\s+/g, '_'),
         description: agent.description || agent.system_prompt,
         schema: z.object({
-            task: z.string().describe(`La tarea detallada para el agente: "${agent.name}".`),
+            task: z.string().describe(`Tarea para: "${agent.name}".`),
         }),
         func: (inputs) => runAgent(agent, inputs),
     }));
@@ -46,27 +47,25 @@ async function getSupervisorTools() {
 
 export async function POST(req: Request) {
   try {
-    const { messages } = await req.json();
-    
-    const tools = await getSupervisorTools();
+    const { messages }: { messages: CoreMessage[] } = await req.json();
+    const supabase = createClient();
     
     const supervisorLLM = new ChatOpenAI({
       model: "gpt-4o",
       temperature: 0,
       apiKey: process.env.OPENAI_API_KEY,
     });
+    
+    const tools = await getSupervisorTools(supabase);
 
-    // 1. Vinculamos las herramientas al modelo de LangChain.
-    const llmWithTools = supervisorLLM.bindTools(tools);
+    // Se utiliza el adaptador experimental para el modelo y las herramientas
+    const model = experimental_langchain_adapter.from(
+        supervisorLLM.bindTools(tools)
+    );
 
-    // 2. Usamos el adaptador 'convertLangChainModelToVercelAI' sobre el modelo ya vinculado.
-    const model = convertLangChainModelToVercelAI(llmWithTools);
-
-    // 3. Llamamos a streamText con el modelo adaptado.
     const result = await streamText({
       model: model,
       messages: messages,
-      // No es necesario pasar 'tools' o 'toolChoice' aquí, ya están vinculados en el paso 1.
     });
 
     return result.toAIStreamResponse();
