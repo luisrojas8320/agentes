@@ -1,9 +1,10 @@
+# Ruta: api/index.py
 import os
 import operator
 import logging
 import traceback
 import json
-from flask import Flask, request, Response, stream_with_context, jsonify # <-- CORRECCIÓN AQUÍ
+from flask import Flask, request, Response, stream_with_context, jsonify
 from flask_cors import CORS
 from dotenv import load_dotenv
 from supabase.client import create_client, Client
@@ -19,6 +20,9 @@ from typing import TypedDict, Annotated, Sequence
 from langgraph.graph import StateGraph, END
 from langgraph.prebuilt import ToolExecutor
 
+# --- NUEVO: Importar las herramientas ---
+from api.tools import internet_search, analyze_url_content
+
 # --- Configuración Inicial y Estado Global ---
 load_dotenv()
 app = Flask(__name__)
@@ -28,7 +32,69 @@ logging.basicConfig(level=logging.INFO)
 _APP_GRAPH = None
 _IS_INITIALIZING = False
 
-# --- Lógica de Creación/Obtención del Grafo ---
+
+# --- FUNCIONES DE AYUDA (Completas y en orden) ---
+
+def create_supabase_client() -> Client:
+    url: str = os.environ.get("SUPABASE_URL")
+    key: str = os.environ.get("SUPABASE_ANON_KEY")
+    if not url or not key: raise ValueError("Variables de entorno de Supabase no configuradas.")
+    return create_client(url, key)
+
+def get_chat_model(provider: str, model_name: str, temperature: float = 0.0):
+    api_key = os.environ.get(f"{provider.upper()}_API_KEY")
+    if not api_key: raise ValueError(f"Variable de entorno {provider.upper()}_API_KEY no encontrada.")
+    
+    if provider == "openai": 
+        return ChatOpenAI(model=model_name, temperature=temperature, api_key=api_key, streaming=True)
+    elif provider == "google": 
+        return ChatGoogleGenerativeAI(model=model_name, temperature=temperature, api_key=api_key, convert_system_message_to_human=True, streaming=True)
+    else: 
+        return ChatOpenAI(model="gpt-4o-mini", temperature=temperature, api_key=os.environ.get("OPENAI_API_KEY"), streaming=True)
+
+def get_all_available_tools(supabase: Client) -> list:
+    """Recopila herramientas fundamentales y agentes especializados."""
+    all_tools = []
+    
+    # 1. Herramientas fundamentales
+    search_tool = StructuredTool.from_function(
+        func=internet_search, name="internet_search",
+        description="Busca en internet para obtener información actualizada o responder preguntas sobre eventos recientes, personas o temas generales."
+    )
+    url_analyzer_tool = StructuredTool.from_function(
+        func=analyze_url_content, name="analyze_url_content",
+        description="Extrae texto de una imagen o PDF a partir de una URL. Útil para leer contenido de enlaces."
+    )
+    all_tools.extend([search_tool, url_analyzer_tool])
+
+    # 2. Agentes especializados desde Supabase
+    try:
+        response = supabase.from_("agents").select("name, description, model_provider, model_name, system_prompt").neq("name", "Asistente Orquestador").execute()
+        if response.data:
+            for agent_config in response.data:
+                class ToolSchema(BaseModel):
+                    task: str = Field(description=f"La tarea o pregunta detallada para el agente '{agent_config['name']}'.")
+                
+                def run_specialist_agent(task: str, cfg=agent_config):
+                    model = get_chat_model(cfg['model_provider'], cfg['model_name'])
+                    messages = [SystemMessage(content=cfg.get('system_prompt')), HumanMessage(content=task)]
+                    return model.invoke(messages).content
+
+                tool_name = agent_config['name'].lower().replace(' ', '_').replace('-', '_')
+                specialist_tool = StructuredTool.from_function(
+                    func=run_specialist_agent, name=tool_name,
+                    description=f"Agente especializado: {agent_config['description']}",
+                    args_schema=ToolSchema
+                )
+                all_tools.append(specialist_tool)
+    except Exception as e:
+        logging.error(f"Error al obtener agentes de Supabase: {e}")
+
+    logging.info(f"Cargadas {len(all_tools)} herramientas.")
+    return all_tools
+
+
+# --- Lógica de Creación del Grafo ---
 def get_or_create_agent_graph():
     global _APP_GRAPH, _IS_INITIALIZING
     if _APP_GRAPH is not None: return _APP_GRAPH
@@ -37,43 +103,39 @@ def get_or_create_agent_graph():
     logging.info("Iniciando la creación del grafo del agente...")
     try:
         supabase_client = create_supabase_client()
-        specialist_tools = get_specialist_agents_as_tools(supabase_client)
-        tool_executor_instance = ToolExecutor(specialist_tools)
+        all_tools = get_all_available_tools(supabase_client)
+        
+        tool_executor_instance = ToolExecutor(all_tools)
         orchestrator_llm = get_chat_model("openai", "gpt-4o-mini")
-        llm_with_tools = orchestrator_llm.bind_tools(specialist_tools)
+        llm_with_tools = orchestrator_llm.bind_tools(all_tools)
 
         class AgentState(TypedDict):
             messages: Annotated[Sequence[BaseMessage], operator.add]
 
         def call_model(state):
-            response = llm_with_tools.invoke(state['messages'])
-            return {"messages": [response]}
+            return {"messages": [llm_with_tools.invoke(state['messages'])]}
 
         def call_tool_executor(state):
-            last_message = state['messages'][-1]
-            tool_calls = last_message.tool_calls
+            tool_calls = state['messages'][-1].tool_calls
             tool_outputs = tool_executor_instance.batch(tool_calls)
-            tool_messages = [ToolMessage(content=str(output), tool_call_id=call['id']) for call, output in zip(tool_calls, tool_outputs)]
-            return {"messages": tool_messages}
+            return {"messages": [ToolMessage(content=str(output), tool_call_id=call['id']) for call, output in zip(tool_calls, tool_outputs)]}
 
         def should_continue(state):
-            last_message = state['messages'][-1]
-            return "action" if hasattr(last_message, 'tool_calls') and last_message.tool_calls else END
+            return "action" if state['messages'][-1].tool_calls else END
 
         workflow = StateGraph(AgentState)
         workflow.add_node("agent", call_model)
         workflow.add_node("action", call_tool_executor)
         workflow.set_entry_point("agent")
-        workflow.add_conditional_edges("agent", should_continue, {"action": "action", END: END})
+        workflow.add_conditional_edges("agent", should_continue)
         workflow.add_edge("action", "agent")
 
         _APP_GRAPH = workflow.compile()
         logging.info("Grafo del agente compilado y listo para usar.")
         return _APP_GRAPH
     except Exception:
-        logging.error(f"ERROR FATAL DURANTE LA INICIALIZACIÓN DEL GRAFO: {traceback.format_exc()}")
-        _APP_GRAPH = None
-        return None
+        logging.error(f"ERROR FATAL DURANTE LA INICIALIZACIÓN: {traceback.format_exc()}")
+        _APP_GRAPH = None; return None
     finally:
         _IS_INITIALIZING = False
 
@@ -83,33 +145,25 @@ def health_check():
     if _APP_GRAPH is None and not _IS_INITIALIZING:
         get_or_create_agent_graph()
     if _APP_GRAPH:
-        return jsonify({"status": "ok", "message": "AI Playground Agent Backend está inicializado y corriendo."})
+        return jsonify({"status": "ok", "message": "AI Playground Agent Backend está inicializado."})
     elif _IS_INITIALIZING:
         return jsonify({"status": "initializing", "message": "La inicialización del agente está en curso."}), 503
     else:
-        return jsonify({"status": "error", "message": "La inicialización del agente falló. Revise los logs del backend."}), 500
+        return jsonify({"status": "error", "message": "La inicialización del agente falló."}), 500
 
 @app.route('/api/chat', methods=['POST'])
 def chat_handler():
     app_graph = get_or_create_agent_graph()
     if app_graph is None:
-        error_msg = json.dumps({"error": "El agente se está inicializando o ha fallado. Por favor, inténtelo de nuevo en un momento."})
-        return Response(error_msg, status=503, mimetype='application/json')
+        return Response(json.dumps({"error": "Agente no disponible."}), status=503, mimetype='application/json')
 
     try:
         data = request.get_json()
         history = data.get('messages', [])
+        input_messages = [HumanMessage(content=msg['content']) if msg['role'] == 'user' else AIMessage(content=msg['content']) for msg in history]
         
-        input_messages = []
-        for msg in history:
-            if msg['role'] == 'user':
-                input_messages.append(HumanMessage(content=msg['content']))
-            elif msg['role'] == 'assistant':
-                input_messages.append(AIMessage(content=msg['content']))
-        
-        if not any(isinstance(m, SystemMessage) for m in input_messages):
-            system_prompt = "Eres un agente orquestador experto. Tu trabajo es analizar la petición del usuario y delegarla a la herramienta/agente especializado más adecuado. Si la petición es un saludo o no corresponde a ninguna herramienta, responde amablemente."
-            input_messages.insert(0, SystemMessage(content=system_prompt))
+        system_prompt = "Eres un orquestador experto. Analiza la petición y delega a la herramienta más adecuada. Si es un saludo o una pregunta general sin tarea clara, responde directamente. Si una herramienta devuelve un error, informa al usuario sobre el error de forma clara."
+        input_messages.insert(0, SystemMessage(content=system_prompt))
             
         def generate_stream():
             try:
@@ -124,49 +178,17 @@ def chat_handler():
                             if tool_message.content:
                                 yield f"data: {json.dumps({'content': tool_message.content})}\n\n"
             except Exception as e:
-                logging.error(f"Error durante el streaming: {traceback.format_exc()}")
-                yield f"data: {json.dumps({'error': 'Ocurrió un error en el servidor durante el streaming.'})}\n\n"
+                logging.error(f"Error en stream: {traceback.format_exc()}")
+                yield f"data: {json.dumps({'error': 'Error interno durante el streaming.'})}\n\n"
             
             yield f"data: [DONE]\n\n"
 
         return Response(stream_with_context(generate_stream()), mimetype='text/event-stream')
-
     except Exception as e:
         logging.error(f"Error en chat_handler: {traceback.format_exc()}")
-        error_msg = json.dumps({"error": "Ocurrió un error interno del servidor."})
-        return Response(error_msg, status=500, mimetype='application/json')
+        return Response(json.dumps({"error": "Error interno del servidor."}), status=500, mimetype='application/json')
 
-# --- Funciones de Ayuda ---
-def create_supabase_client() -> Client:
-    url: str = os.environ.get("SUPABASE_URL")
-    key: str = os.environ.get("SUPABASE_ANON_KEY")
-    if not url or not key: raise ValueError("Variables de entorno de Supabase no configuradas.")
-    return create_client(url, key)
-
-def get_chat_model(provider: str, model_name: str, temperature: float = 0.0):
-    api_key = os.environ.get(f"{provider.upper()}_API_KEY")
-    if provider == "openai": return ChatOpenAI(model=model_name, temperature=temperature, api_key=api_key, streaming=True)
-    elif provider == "google": return ChatGoogleGenerativeAI(model=model_name, temperature=temperature, api_key=api_key, convert_system_message_to_human=True, streaming=True)
-    else: return ChatOpenAI(model="gpt-4o-mini", temperature=temperature, api_key=os.environ.get("OPENAI_API_KEY"), streaming=True)
-
-def get_specialist_agents_as_tools(supabase: Client) -> list:
-    response = supabase.from_("agents").select("*").neq("name", "Asistente Orquestador").execute()
-    tools = []
-    if not response.data: return []
-    for agent_config in response.data:
-        class ToolSchema(BaseModel):
-            task: str = Field(description=f"La tarea específica o pregunta detallada para el agente '{agent_config['name']}'.")
-        def run_specialist_agent(task: str, cfg=agent_config):
-            model = get_chat_model(cfg['model_provider'], cfg['model_name'])
-            system_prompt = cfg.get('system_prompt', "Eres un asistente especializado.")
-            messages = [SystemMessage(content=system_prompt), HumanMessage(content=task)]
-            result = model.invoke(messages)
-            return result.content
-        tool_name = agent_config['name'].lower().replace(' ', '_').replace('-', '_')
-        tool = StructuredTool.from_function(
-            func=run_specialist_agent, name=tool_name,
-            description=f"Agente especializado en: {agent_config['description']}. Úsalo para tareas relacionadas.",
-            args_schema=ToolSchema
-        )
-        tools.append(tool)
-    return tools
+# --- Punto de Entrada ---
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host="0.0.0.0", port=port)
