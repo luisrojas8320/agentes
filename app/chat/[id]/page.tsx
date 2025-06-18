@@ -5,6 +5,7 @@ import { Menu, Link, Mic, Wand2, ScanSearch } from "lucide-react";
 import Sidebar from "@/components/Sidebar";
 import ChatMessage from "@/components/ChatMessage";
 import { useState, FormEvent } from "react";
+import { postChatMessage } from "@/lib/chat"; // <-- 1. IMPORTAR LA NUEVA FUNCIÓN
 
 interface Message {
   id: string;
@@ -21,25 +22,24 @@ export default function ChatPage() {
   const sendMessage = async (messageContent: string) => {
     if (isLoading || !messageContent.trim()) return;
     setIsLoading(true);
+
     const newUserMessage: Message = { id: Date.now().toString(), role: 'user', content: messageContent };
-    const newMessages = [...messages, newUserMessage];
-    setMessages(newMessages);
-    try {
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: newMessages }),
-      });
-      if (!response.ok) { throw new Error(`Error en la solicitud: ${response.statusText}`); }
-      const data = await response.json();
-      const assistantMessage: Message = { id: (Date.now() + 1).toString(), role: 'assistant', content: data.response || "No se recibió respuesta." };
-      setMessages(prev => [...prev, assistantMessage]);
-    } catch (error) {
-      const errorMessage: Message = { id: (Date.now() + 1).toString(), role: 'assistant', content: "Error al conectar con el servidor de Python." };
-      setMessages(prev => [...prev, errorMessage]);
-    } finally {
-      setIsLoading(false);
-    }
+    const updatedMessages = [...messages, newUserMessage];
+    setMessages(updatedMessages);
+
+    // --- 2. LÓGICA DE PETICIÓN MODIFICADA ---
+    // Ahora llama a la función centralizada que apunta a Google Cloud Run
+    const assistantResponseContent = await postChatMessage(updatedMessages);
+    
+    const assistantMessage: Message = { 
+      id: (Date.now() + 1).toString(), 
+      role: 'assistant', 
+      content: assistantResponseContent 
+    };
+    setMessages(prev => [...prev, assistantMessage]);
+    // --- FIN DEL CAMBIO ---
+
+    setIsLoading(false);
   };
 
   const handleSubmit = (e: FormEvent<HTMLFormElement>) => {

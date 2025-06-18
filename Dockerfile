@@ -1,19 +1,28 @@
-# FASE 1: Builder (para instalar dependencias de forma segura)
-FROM python:3.12-slim as builder
-RUN pip install poetry
+# Usar una imagen base de Python slim
+FROM python:3.12-slim
+
+# 1. Establecer el directorio de trabajo
 WORKDIR /app
+
+# 2. Instalar las herramientas necesarias
+RUN pip install --upgrade pip
+RUN pip install poetry
+
+# 3. Configurar Poetry para que instale en el sistema, no en un venv
+RUN poetry config virtualenvs.create false
+
+# 4. Copiar los archivos de dependencias
 COPY pyproject.toml poetry.lock ./
+
+# 5. Instalar las dependencias de producción.
+#    Gunicorn se instalará en una ruta de sistema estándar (ej. /usr/local/bin)
 RUN poetry install --no-root --only main
 
-# FASE 2: Final (la imagen de producción)
-FROM python:3.12-slim
-WORKDIR /app
-COPY --from=builder /root/.cache/pypoetry/virtualenvs/ /opt/pypoetry/virtualenvs/
+# 6. Copiar el código de la aplicación
 COPY ./api ./api
-# La variable de entorno PATH se actualiza para que se pueda encontrar gunicorn
-ENV PATH="/opt/pypoetry/virtualenvs/agentes-nuevo-py3.12/bin:$PATH"
-# Cloud Run proporciona el puerto a través de esta variable de entorno
+
+# 7. Exponer el puerto que Cloud Run usará
 ENV PORT=8080
 
-# Comando para iniciar el servidor Gunicorn
-CMD exec gunicorn --bind :$PORT --workers 1 --threads 8 --timeout 0 api.index:app
+# 8. Comando para ejecutar la aplicación. Gunicorn ahora será encontrado en el PATH del sistema.
+CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "1", "--threads", "8", "--timeout", "0", "api.index:app"]
