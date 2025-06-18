@@ -5,8 +5,7 @@
 import type React from "react"
 import { useState } from "react"
 import { useRouter } from "next/navigation"
-// <-- CORRECCIÓN: Importar la nueva función para crear el cliente
-import { createClient } from "@/utils/supabase/client"
+import { createClient } from "@/utils/supabase/client" // <-- Usa nuestro nuevo helper
 import { Button } from "./ui/button"
 import { Input } from "./ui/input"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "./ui/card"
@@ -14,97 +13,101 @@ import { Mail, Lock } from "lucide-react"
 import { useToast } from "./ui/use-toast"
 
 export default function AuthForm() {
-  // <-- CORRECCIÓN: Crear una instancia del cliente de Supabase
   const supabase = createClient()
+  const router = useRouter()
+  const { toast } = useToast()
 
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [isSignUp, setIsSignUp] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
-  const router = useRouter()
-  const { toast } = useToast()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsLoading(true)
 
     try {
-      let error;
       if (isSignUp) {
-        const { error: signUpError } = await supabase.auth.signUp({ email, password });
-        error = signUpError;
-        if (!error) {
-            toast({ title: "Success!", description: "Check your email for the confirmation link." });
-        }
-      } else {
-        const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
-        error = signInError;
-      }
+        // --- Lógica de Registro (Sign Up) ---
+        const { error } = await supabase.auth.signUp({ email, password });
+        if (error) throw error;
+        
+        toast({
+          title: "¡Cuenta creada!",
+          description: "Revisa tu correo electrónico para confirmar tu cuenta antes de iniciar sesión.",
+        });
+        // Limpiamos el formulario para una mejor UX
+        setEmail("");
+        setPassword("");
+        setIsSignUp(false); // Regresamos al modo Sign In
 
-      if (error) {
-        throw error;
-      }
-      
-      if (!isSignUp) {
-        router.push("/")
+      } else {
+        // --- Lógica de Inicio de Sesión (Sign In) ---
+        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        if (error) throw error;
+        
+        // --- CORRECCIÓN CLAVE ---
+        // Refresca la página. Esto permite que el middleware detecte la nueva sesión
+        // y redirija al usuario a la página principal ('/') de forma segura.
+        router.refresh();
       }
 
     } catch (error: any) {
-      console.error("Authentication error:", error)
+      console.error("Error de autenticación:", error);
       toast({
-        title: "Authentication Error",
-        description: error.message || "An unexpected error occurred.",
+        title: "Error de Autenticación",
+        description: error.message || "Ocurrió un error inesperado.",
         variant: "destructive",
-      })
+      });
     } finally {
-      setIsLoading(false)
+      setIsLoading(false);
     }
-  }
+  };
 
   return (
-    <Card className="w-full max-w-md mx-auto">
-      <CardHeader>
-        <CardTitle>{isSignUp ? "Create Account" : "Sign In"}</CardTitle>
-        <CardDescription>
-          {isSignUp ? "Create a new account to get started" : "Sign in to your account to continue"}
+    <Card className="w-full max-w-sm border-gray-700 bg-transparent text-white">
+      <CardHeader className="text-center">
+        <CardTitle className="text-2xl">{isSignUp ? "Crear una cuenta" : "Iniciar Sesión"}</CardTitle>
+        <CardDescription className="text-gray-400">
+          {isSignUp ? "Ingresa tus datos para registrarte." : "Bienvenido de nuevo."}
         </CardDescription>
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="space-y-2">
-            <div className="flex items-center space-x-2">
-              <Mail className="h-4 w-4 text-gray-500" />
-              <Input
-                type="email"
-                placeholder="Email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-              />
-            </div>
+          <div className="relative">
+            <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+            <Input
+              className="pl-9 bg-[#111111] border-gray-600 focus:border-blue-500"
+              type="email"
+              placeholder="email@ejemplo.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+              disabled={isLoading}
+            />
           </div>
-          <div className="space-y-2">
-            <div className="flex items-center space-x-2">
-              <Lock className="h-4 w-4 text-gray-500" />
-              <Input
-                type="password"
-                placeholder="Password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-              />
-            </div>
+          <div className="relative">
+            <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+            <Input
+              className="pl-9 bg-[#111111] border-gray-600 focus:border-blue-500"
+              type="password"
+              placeholder="Contraseña"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              disabled={isLoading}
+            />
           </div>
-          <Button type="submit" className="w-full" disabled={isLoading}>
-            {isLoading ? "Processing..." : isSignUp ? "Sign Up" : "Sign In"}
+          <Button type="submit" className="w-full bg-blue-600 hover:bg-blue-700" disabled={isLoading}>
+            {isLoading ? "Procesando..." : isSignUp ? "Crear Cuenta" : "Iniciar Sesión"}
           </Button>
         </form>
       </CardContent>
-      <CardFooter>
-        <Button variant="link" className="w-full" onClick={() => setIsSignUp(!isSignUp)}>
-          {isSignUp ? "Already have an account? Sign In" : "Don't have an account? Sign Up"}
+      <CardFooter className="flex justify-center">
+        <Button variant="link" className="text-sm text-gray-400 hover:text-white" onClick={() => setIsSignUp(!isSignUp)} disabled={isLoading}>
+          {isSignUp ? "¿Ya tienes una cuenta? Inicia Sesión" : "¿No tienes una cuenta? Regístrate"}
         </Button>
       </CardFooter>
     </Card>
-  )
+  );
 }
