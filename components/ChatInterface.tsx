@@ -5,7 +5,7 @@ import Sidebar from '@/components/Sidebar';
 import { Button } from '@/components/ui/button';
 import { Menu } from 'lucide-react';
 import { MessageList } from './MessageList';
-import { ChatInput } from '../components/ChatInput';
+import { ChatInput } from './ChatInput';
 
 export default function ChatInterface() {
   // El estado del sidebar es puramente visual, se queda aquí
