@@ -3,7 +3,7 @@ import operator
 import logging
 import traceback
 from flask import Flask, request, jsonify
-from flask_cors import CORS
+from flask_cors import CORS # <--- 1. IMPORTAR CORS
 from dotenv import load_dotenv
 from supabase.client import create_client, Client
 from langchain_openai import ChatOpenAI
@@ -18,27 +18,31 @@ from langgraph.prebuilt import ToolExecutor
 # --- Configuración Inicial y Estado Global ---
 load_dotenv()
 app = Flask(__name__)
-# Permitir peticiones desde tu dominio de Vercel y localhost
-CORS(app, resources={r"/*": {"origins": [os.environ.get("VERCEL_URL", "http://localhost:3000")]}})
+
+# --- 2. CONFIGURAR CORS ---
+# Permitir peticiones solo desde tu dominio de Vercel y localhost para desarrollo.
+# La variable VERCEL_URL la configuramos en el comando de despliegue de gcloud.
+CORS(app, resources={r"/api/*": {"origins": [os.environ.get("VERCEL_URL", "http://localhost:3000")]}})
+
+
 logging.basicConfig(level=logging.INFO)
 
 # Variables globales para gestionar el estado del grafo compilado
 _APP_GRAPH = None
 _IS_INITIALIZING = False
 
+# [EL RESTO DEL CÓDIGO PERMANECE EXACTAMENTE IGUAL]
+# ... (pega aquí el resto de tu código desde la función get_or_create_agent_graph hasta el final)
+# Asegúrate de que esta sea la única configuración de CORS en tu archivo.
 # --- Lógica de Creación/Obtención del Grafo (Optimizada) ---
 def get_or_create_agent_graph():
     global _APP_GRAPH, _IS_INITIALIZING
     
-    # Si el grafo ya está compilado, devolverlo inmediatamente.
     if _APP_GRAPH is not None:
         return _APP_GRAPH
 
-    # Si otra petición ya está inicializando, esperar.
     if _IS_INITIALIZING:
         logging.info("La inicialización ya está en curso, esperando...")
-        # En un entorno de producción real, aquí podría haber un bucle de espera con timeout.
-        # Por simplicidad, devolvemos None, y el endpoint lo manejará.
         return None 
 
     _IS_INITIALIZING = True
@@ -76,28 +80,22 @@ def get_or_create_agent_graph():
         workflow.add_conditional_edges("agent", should_continue, {"action": "action", END: END})
         workflow.add_edge("action", "agent")
 
-        # Asignar el grafo compilado a la variable global
         _APP_GRAPH = workflow.compile()
         logging.info("Grafo del agente compilado y listo para usar.")
         return _APP_GRAPH
     except Exception:
         logging.error(f"ERROR FATAL DURANTE LA INICIALIZACIÓN DEL GRAFO: {traceback.format_exc()}")
-        _APP_GRAPH = None # Asegurarse de que el grafo no se considere inicializado si falla
+        _APP_GRAPH = None
         return None
     finally:
         _IS_INITIALIZING = False
-
 
 # --- Rutas de la API ---
 
 @app.route("/")
 def health_check():
-    """
-    Endpoint de "calentamiento" y chequeo de salud.
-    Dispara la inicialización del grafo si no está listo.
-    """
     if _APP_GRAPH is None and not _IS_INITIALIZING:
-        get_or_create_agent_graph() # Dispara la inicialización
+        get_or_create_agent_graph()
     
     if _APP_GRAPH:
         return jsonify({"status": "ok", "message": "AI Playground Agent Backend está inicializado y corriendo."})
@@ -106,14 +104,16 @@ def health_check():
     else:
         return jsonify({"status": "error", "message": "La inicialización del agente falló. Revise los logs del backend."}), 500
 
-@app.route('/api/chat', methods=['POST'])
+@app.route('/api/chat', methods=['POST', 'OPTIONS']) # <-- Añadir OPTIONS a los métodos permitidos
 def chat_handler():
-    # Obtener el grafo. No intentar crearlo aquí, solo obtenerlo.
+    if request.method == 'OPTIONS':
+        # Flask-CORS maneja la respuesta preflight automáticamente
+        return "", 204
+
     app_graph = get_or_create_agent_graph()
 
     if app_graph is None:
-        # Esto puede ocurrir si el backend recién arrancó y la inicialización no ha terminado o falló.
-        return jsonify({"error": "El agente se está inicializando o ha fallado. Por favor, inténtelo de nuevo en un momento."}), 503 # 503 Service Unavailable
+        return jsonify({"error": "El agente se está inicializando o ha fallado. Por favor, inténtelo de nuevo en un momento."}), 503
         
     try:
         data = request.get_json()
@@ -127,7 +127,6 @@ def chat_handler():
         system_prompt = "Eres un agente orquestador experto. Tu trabajo es analizar la petición del usuario y delegarla a la herramienta/agente especializado más adecuado. No respondas directamente al usuario. Tu única función es llamar a la herramienta correcta."
         initial_messages = [SystemMessage(content=system_prompt), HumanMessage(content=user_message_content)]
         
-        # Invocar el grafo con el estado inicial
         final_state = app_graph.invoke({"messages": initial_messages})
         response_content = final_state['messages'][-1].content
         
@@ -137,8 +136,7 @@ def chat_handler():
         logging.error(f"Error en el manejador de chat: {traceback.format_exc()}")
         return jsonify({"error": "Ocurrió un error interno del servidor durante el procesamiento del chat."}), 500
 
-# --- Funciones de Ayuda (Sin cambios) ---
-
+# --- Funciones de Ayuda ---
 def create_supabase_client() -> Client:
     url: str = os.environ.get("SUPABASE_URL")
     key: str = os.environ.get("SUPABASE_ANON_KEY")
@@ -197,5 +195,5 @@ def get_specialist_agents_as_tools(supabase: Client) -> list:
 
 # --- Punto de Entrada para Gunicorn/Cloud Run ---
 if __name__ == "__main__":
-    get_or_create_agent_graph() # Pre-calentar al iniciar localmente
+    get_or_create_agent_graph()
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
