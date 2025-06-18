@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field
 from typing import TypedDict, Annotated, Sequence
 from langgraph.graph import StateGraph, END
 
+# Importamos las herramientas desde su propio módulo
 from api.tools import internet_search, analyze_url_content
 
 # --- Configuración Inicial y Estado Global ---
@@ -77,7 +78,6 @@ def get_or_create_agent_graph():
     try:
         supabase_client = create_supabase_client()
         all_tools = get_all_available_tools(supabase_client)
-        
         orchestrator_llm = get_chat_model("openai", "gpt-4o-mini")
         llm_with_tools = orchestrator_llm.bind_tools(all_tools)
 
@@ -142,39 +142,32 @@ def chat_handler():
     app_graph = get_or_create_agent_graph()
     if app_graph is None:
         return Response(json.dumps({"error": "Agente no disponible."}), status=503, mimetype='application/json')
-
     try:
         data = request.get_json()
         history = data.get('messages', [])
         input_messages = [HumanMessage(content=msg['content']) if msg['role'] == 'user' else AIMessage(content=msg['content']) for msg in history]
-        
-        system_prompt = "Eres un orquestador experto. Analiza la petición y delega a la herramienta más adecuada. Si es un saludo o una pregunta general sin tarea clara, responde directamente. Si una herramienta devuelve un error, informa al usuario sobre el error de forma clara."
+        system_prompt = "Eres un orquestador experto. Analiza la petición y delega a la herramienta más adecuada. Si es un saludo o una pregunta general sin tarea clara, responde directamente. Cuando una herramienta te devuelva información, sintetízala en una respuesta clara y concisa para el usuario."
         if not any(isinstance(m, SystemMessage) for m in input_messages):
             input_messages.insert(0, SystemMessage(content=system_prompt))
             
         def generate_stream():
             try:
                 for chunk in app_graph.stream({"messages": input_messages}, config={"recursion_limit": 25}):
-                    for key, value in chunk.items():
-                        if key == 'agent' and 'messages' in value:
-                            ai_message = value['messages'][-1]
+                    if 'agent' in chunk:
+                        agent_messages = chunk['agent'].get('messages', [])
+                        if agent_messages:
+                            ai_message = agent_messages[-1]
                             if ai_message.content and not ai_message.tool_calls:
                                 yield f"data: {json.dumps({'content': ai_message.content})}\n\n"
-                        elif key == 'action' and 'messages' in value:
-                            tool_message = value['messages'][-1]
-                            if tool_message.content:
-                                yield f"data: {json.dumps({'content': tool_message.content})}\n\n"
             except Exception as e:
                 logging.error(f"Error en stream: {traceback.format_exc()}")
                 yield f"data: {json.dumps({'error': f'Error en el backend: {str(e)}'})}\n\n"
-            
             yield f"data: [DONE]\n\n"
 
         return Response(stream_with_context(generate_stream()), mimetype='text/event-stream')
     except Exception as e:
         logging.error(f"Error en chat_handler: {traceback.format_exc()}")
-        error_message = f"Error en el servidor: {str(e)}"
-        return Response(json.dumps({"error": error_message}), status=500, mimetype='application/json')
+        return Response(json.dumps({"error": f"Error en el servidor: {str(e)}"}), status=500, mimetype='application/json')
 
 # --- Punto de Entrada ---
 if __name__ == "__main__":
