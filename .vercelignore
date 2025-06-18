@@ -1,0 +1,18 @@
+# Archivos y directorios de Vercel y Git
+.vercel
+.git
+
+# Dependencias de Node.js (Vercel las maneja por separado)
+node_modules
+
+# Entornos virtuales y caché de Python
+.venv
+venv
+__pycache__
+
+# Archivos de configuración locales
+.env
+.env*.local
+
+# Archivos de Poetry
+.poetry
