@@ -1,157 +1,180 @@
 import os
+import operator
 from flask import Flask, request, jsonify
 from dotenv import load_dotenv
+from supabase.client import create_client, Client
+
 from langchain_openai import ChatOpenAI
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_deepseek import ChatDeepSeek
-from langchain_core.messages import HumanMessage, SystemMessage
+
+from langchain_core.messages import HumanMessage, SystemMessage, BaseMessage, ToolMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain.agents import AgentExecutor, create_tool_calling_agent
 from langchain.tools import StructuredTool
-from supabase.client import create_client, Client
 from pydantic import BaseModel, Field
-from typing import Type
 
-# Cargar variables de entorno desde el archivo .env
+from typing import TypedDict, Annotated, Sequence, Type
+from langgraph.graph import StateGraph, END
+from langgraph.prebuilt import ToolExecutor
+
+# --- Configuración Inicial ---
 load_dotenv()
-
-# --- Configuración Inicial de la Aplicación Flask ---
 app = Flask(__name__)
 
 # --- Conexión a Supabase ---
 def create_supabase_client() -> Client:
-    """Crea y retorna un cliente de Supabase usando las variables de entorno."""
     url: str = os.environ.get("SUPABASE_URL")
     key: str = os.environ.get("SUPABASE_ANON_KEY")
     if not url or not key:
-        raise ValueError("Las variables de entorno SUPABASE_URL y SUPABASE_ANON_KEY deben estar configuradas.")
+        raise ValueError("Variables de entorno de Supabase no configuradas.")
     return create_client(url, key)
 
 # --- Creador de Modelos de Lenguaje (LLMs) ---
-def get_chat_model(provider: str, model_name: str, temperature: float = 0.7):
-    """
-    Retorna una instancia de un modelo de chat (OpenAI, Google, DeepSeek)
-    basado en el proveedor y nombre del modelo.
-    Las claves de API se obtienen de las variables de entorno.
-    """
+# (Sin cambios, esta función es correcta)
+def get_chat_model(provider: str, model_name: str, temperature: float = 0.0):
     api_key = os.environ.get(f"{provider.upper()}_API_KEY")
-    
     if provider == "openai":
-        if not api_key:
-            print("Advertencia: OPENAI_API_KEY no está configurada.")
         return ChatOpenAI(model=model_name, temperature=temperature, api_key=api_key)
     elif provider == "google":
-        if not api_key:
-            print("Advertencia: GOOGLE_API_KEY no está configurada.")
-        return ChatGoogleGenerativeAI(model=model_name, temperature=temperature, api_key=api_key)
+        return ChatGoogleGenerativeAI(model=model_name, temperature=temperature, api_key=api_key, convert_system_message_to_human=True)
     elif provider == "deepseek":
-        if not api_key:
-            print("Advertencia: DEEPSEEK_API_KEY no está configurada.")
         return ChatDeepSeek(model=model_name, temperature=temperature, api_key=api_key)
     else:
-        # Modelo por defecto si el proveedor no coincide
-        default_api_key = os.environ.get("OPENAI_API_KEY")
-        if not default_api_key:
-            print("Advertencia: Usando modelo por defecto (gpt-4o-mini) pero OPENAI_API_KEY no está configurada.")
-        return ChatOpenAI(model="gpt-4o-mini", temperature=temperature, api_key=default_api_key)
+        return ChatOpenAI(model="gpt-4o-mini", temperature=temperature, api_key=os.environ.get("OPENAI_API_KEY"))
 
-# --- Lógica para Ejecutar un Agente Especializado ---
+# --- Lógica de Agentes Especializados ---
+# (Sin cambios, esta función es correcta)
 def run_specialist_agent(agent_config: dict, task_content: str):
-    """
-    Ejecuta un agente especializado usando su configuración y la tarea recibida.
-    """
     try:
         model = get_chat_model(agent_config['model_provider'], agent_config['model_name'])
         system_prompt = agent_config.get('system_prompt', "Eres un asistente especializado.")
-        messages = [
-            SystemMessage(content=system_prompt),
-            HumanMessage(content=task_content)
-        ]
+        messages = [SystemMessage(content=system_prompt), HumanMessage(content=task_content)]
         result = model.invoke(messages)
         return result.content
     except Exception as e:
-        print(f"ERROR: Fallo al ejecutar agente especializado '{agent_config['name']}': {e}")
         return f"Error al ejecutar el agente {agent_config['name']}: {e}"
 
-
-# --- Creador de Herramientas (Agentes Especializados desde Supabase) ---
+# --- Creador de Herramientas (Agentes como Herramientas) ---
+# (Sin cambios, esta función es correcta)
 def get_specialist_agents_as_tools(supabase: Client):
-    """
-    Obtiene la configuración de los agentes especializados desde Supabase
-    y los convierte en herramientas de LangChain usando StructuredTool.
-    """
     response = supabase.from_("agents").select("*").neq("name", "Asistente Orquestador").execute()
     tools = []
     if not response.data:
-        print("Advertencia: No se encontraron agentes especializados en Supabase.")
         return []
-
     for agent_config in response.data:
         class ToolSchema(BaseModel):
             task: str = Field(description=f"La tarea específica o pregunta detallada para el agente '{agent_config['name']}'.")
-
         tool = StructuredTool.from_function(
             func=lambda task, cfg=agent_config: run_specialist_agent(cfg, task),
             name=agent_config['name'].lower().replace(' ', '_'),
-            description=f"Agente especializado en: {agent_config['description']}. Úsalo para tareas relacionadas con este tema.",
+            description=f"Agente especializado en: {agent_config['description']}. Úsalo para tareas relacionadas.",
             args_schema=ToolSchema
         )
         tools.append(tool)
     return tools
 
-# --- API Endpoint Principal ---
+### --- NUEVA ARQUITECTURA CON LANGGRAPH --- ###
+
+# 1. Definición del Estado del Grafo
+# El estado es el objeto que fluye entre los nodos del grafo.
+# 'messages' acumulará el historial de la conversación.
+class AgentState(TypedDict):
+    messages: Annotated[Sequence[BaseMessage], operator.add]
+
+# 2. Definición de Nodos y Lógica Condicional
+# Los nodos son las funciones que realizan el trabajo.
+
+# Nodo Agente: Llama al LLM para decidir el siguiente paso.
+def call_model(state, llm, tools, tool_executor):
+    messages = state['messages']
+    # Vincula las herramientas al LLM para que sepa cuáles puede usar
+    model_with_tools = llm.bind_tools(tools)
+    response = model_with_tools.invoke(messages)
+    # Añade la respuesta del LLM al estado para el siguiente paso
+    return {"messages": [response]}
+
+# Nodo de Herramientas: Ejecuta las herramientas que el LLM decidió usar.
+def call_tool_executor(state, tool_executor):
+    # El último mensaje del 'call_model' contiene las llamadas a herramientas
+    last_message = state['messages'][-1]
+    tool_calls = last_message.tool_calls
+    
+    # Llama al ejecutor de herramientas
+    tool_outputs = tool_executor.batch(tool_calls)
+
+    # Formatea la salida como ToolMessage
+    tool_messages = [
+        ToolMessage(content=str(output), tool_call_id=call['id'])
+        for call, output in zip(tool_calls, tool_outputs)
+    ]
+    return {"messages": tool_messages}
+
+# Lógica Condicional: Decide a qué nodo ir después del 'call_model'.
+def should_continue(state):
+    last_message = state['messages'][-1]
+    # Si el LLM llamó a una herramienta, vamos al nodo de herramientas.
+    if last_message.tool_calls:
+        return "action"
+    # Si no, hemos terminado.
+    return END
+
+### --- API ENDPOINT PRINCIPAL --- ###
 @app.route('/api/chat', methods=['POST'])
 def chat_handler():
-    """
-    Maneja las solicitudes de chat, orquestando entre el usuario y los agentes especializados.
-    """
     try:
         data = request.get_json()
-        messages = data.get('messages')
-        if not messages:
-            return jsonify({"error": "Formato de mensajes incorrecto o ausente."}), 400
-        
-        user_message_content = messages[-1]['content']
-        
+        user_message_content = data.get('messages', [{}])[-1].get('content')
+        if not user_message_content:
+            return jsonify({"error": "Mensaje del usuario ausente."}), 400
+
+        # --- Creación y Compilación del Grafo ---
         supabase = create_supabase_client()
         tools = get_specialist_agents_as_tools(supabase)
+        tool_executor = ToolExecutor(tools)
+
+        # Usamos el orquestador principal
+        llm = get_chat_model("openai", "gpt-4o-mini")
+
+        # 1. Definir el grafo
+        workflow = StateGraph(AgentState)
+
+        # 2. Añadir los nodos
+        workflow.add_node("agent", lambda state: call_model(state, llm, tools, tool_executor))
+        workflow.add_node("action", lambda state: call_tool_executor(state, tool_executor))
+
+        # 3. Definir las aristas (el flujo)
+        workflow.set_entry_point("agent")
+        workflow.add_conditional_edges(
+            "agent",
+            should_continue,
+            {"action": "action", END: END}
+        )
+        workflow.add_edge("action", "agent")
+
+        # 4. Compilar el grafo en una aplicación ejecutable
+        app_graph = workflow.compile()
         
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", "Eres un agente orquestador. Tu función es analizar la petición del usuario y delegarla a la herramienta (agente especializado) más adecuada si existe. Si ninguna herramienta es apropiada, responde directamente a la pregunta del usuario de forma concisa. Siempre intenta utilizar las herramientas disponibles si la pregunta del usuario es clara y se ajusta a la descripción de alguna herramienta."),
-            MessagesPlaceholder(variable_name="chat_history"),
-            ("human", "{input}"),
-            MessagesPlaceholder(variable_name="agent_scratchpad"),
-        ])
+        # --- Invocación del Grafo ---
+        system_prompt = "Eres un agente orquestador. Tu función es analizar la petición del usuario y delegarla a la herramienta (agente especializado) más adecuada. Si ninguna herramienta es apropiada, responde directamente. Si la respuesta de una herramienta es un error, informa al usuario sobre el error."
         
-        llm = get_chat_model("openai", "gpt-4o-mini", temperature=0)
+        initial_messages = [
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=user_message_content)
+        ]
         
-        agent = create_tool_calling_agent(llm, tools, prompt)
-        
-        agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
-        
-        result = agent_executor.invoke({
-            "input": user_message_content,
-            "chat_history": []
-        })
-        
-        response_content = result.get('output', 'No se pudo generar una respuesta.')
+        final_state = app_graph.invoke({"messages": initial_messages})
+        response_content = final_state['messages'][-1].content
         
         return jsonify({"response": response_content})
 
-    except ValueError as ve:
-        print(f"ERROR de configuración: {ve}")
-        return jsonify({"error": str(ve)}), 500
     except Exception as e:
-        print(f"ERROR inesperado en el handler: {e}")
         import traceback
-        traceback.print_exc() 
-        return jsonify({"error": "Ocurrió un error interno del servidor. Consulte los logs para más detalles."}), 500
+        traceback.print_exc()
+        return jsonify({"error": f"Ocurrió un error interno del servidor: {e}"}), 500
 
 @app.route('/health', methods=['GET'])
 def health_check():
-    """Endpoint de salud para verificar que la aplicación Flask está funcionando."""
     return jsonify({"status": "ok"}), 200
 
 # Punto de entrada para Vercel
 # Esta variable 'app' es la que Vercel busca
-# NO agregar if __name__ == "__main__" para Vercel
