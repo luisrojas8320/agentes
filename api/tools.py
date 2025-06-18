@@ -1,3 +1,4 @@
+# Ruta: api/tools.py
 import os
 import requests
 import logging
@@ -17,11 +18,8 @@ def internet_search(query: str) -> str:
             "Authorization": f"Bearer {jina_api_key}",
             "Accept": "application/json",
         }
-        # La URL de Jina se construye con la query directamente
-        response = requests.get(f"https://s.jina.ai/{query}", headers=headers)
-        response.raise_for_status() # Lanza un error para respuestas 4xx/5xx
-        
-        # Jina devuelve la respuesta en texto plano (Markdown), que es ideal para el LLM.
+        response = requests.get(f"https://s.jina.ai/{query}", headers=headers, timeout=20)
+        response.raise_for_status()
         return response.text
 
     except requests.exceptions.RequestException as e:
@@ -46,9 +44,9 @@ def analyze_url_content(url: str) -> str:
         payload = {
             'url': url,
             'apikey': ocr_api_key,
-            'language': 'spa', # Asumimos español, se puede cambiar
+            'language': 'spa',
         }
-        response = requests.post('https://api.ocr.space/parse/image', data=payload)
+        response = requests.post('https://api.ocr.space/parse/image', data=payload, timeout=30)
         response.raise_for_status()
 
         result = response.json()
