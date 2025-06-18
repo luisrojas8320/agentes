@@ -18,12 +18,11 @@ pydantic = "<3"
 tiktoken = "^0.7.0"
 flask-cors = "^4.0.1"
 
-# --- Stack LangChain (con versiones compatibles) ---
+# --- Stack LangChain (Flexible y Compatible) ---
 langchain = "^0.2.5"
 langgraph = "^0.1.5"
 langchain-openai = "^0.1.17"
 langchain-google-genai = "^1.0.6"
-
 
 [build-system]
 requires = ["poetry-core"]
