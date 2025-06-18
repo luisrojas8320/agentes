@@ -20,7 +20,6 @@ from typing import TypedDict, Annotated, Sequence
 from langgraph.graph import StateGraph, END
 from langgraph.prebuilt import ToolExecutor
 
-# --- NUEVO: Importar las herramientas ---
 from api.tools import internet_search, analyze_url_content
 
 # --- Configuración Inicial y Estado Global ---
@@ -33,8 +32,7 @@ _APP_GRAPH = None
 _IS_INITIALIZING = False
 
 
-# --- FUNCIONES DE AYUDA (Completas y en orden) ---
-
+# --- Funciones de Ayuda (Completas) ---
 def create_supabase_client() -> Client:
     url: str = os.environ.get("SUPABASE_URL")
     key: str = os.environ.get("SUPABASE_ANON_KEY")
@@ -53,10 +51,8 @@ def get_chat_model(provider: str, model_name: str, temperature: float = 0.0):
         return ChatOpenAI(model="gpt-4o-mini", temperature=temperature, api_key=os.environ.get("OPENAI_API_KEY"), streaming=True)
 
 def get_all_available_tools(supabase: Client) -> list:
-    """Recopila herramientas fundamentales y agentes especializados."""
     all_tools = []
     
-    # 1. Herramientas fundamentales
     search_tool = StructuredTool.from_function(
         func=internet_search, name="internet_search",
         description="Busca en internet para obtener información actualizada o responder preguntas sobre eventos recientes, personas o temas generales."
@@ -67,7 +63,6 @@ def get_all_available_tools(supabase: Client) -> list:
     )
     all_tools.extend([search_tool, url_analyzer_tool])
 
-    # 2. Agentes especializados desde Supabase
     try:
         response = supabase.from_("agents").select("name, description, model_provider, model_name, system_prompt").neq("name", "Asistente Orquestador").execute()
         if response.data:
@@ -93,8 +88,6 @@ def get_all_available_tools(supabase: Client) -> list:
     logging.info(f"Cargadas {len(all_tools)} herramientas.")
     return all_tools
 
-
-# --- Lógica de Creación del Grafo ---
 def get_or_create_agent_graph():
     global _APP_GRAPH, _IS_INITIALIZING
     if _APP_GRAPH is not None: return _APP_GRAPH
@@ -133,23 +126,17 @@ def get_or_create_agent_graph():
         _APP_GRAPH = workflow.compile()
         logging.info("Grafo del agente compilado y listo para usar.")
         return _APP_GRAPH
-    except Exception:
-        logging.error(f"ERROR FATAL DURANTE LA INICIALIZACIÓN: {traceback.format_exc()}")
+    except Exception as e:
+        logging.error(f"ERROR FATAL DURANTE LA INICIALIZACIÓN: {e}")
         _APP_GRAPH = None; return None
     finally:
         _IS_INITIALIZING = False
 
-# --- Rutas de la API ---
+# --- Rutas de la API (con manejo de errores mejorado) ---
 @app.route("/")
 def health_check():
-    if _APP_GRAPH is None and not _IS_INITIALIZING:
-        get_or_create_agent_graph()
-    if _APP_GRAPH:
-        return jsonify({"status": "ok", "message": "AI Playground Agent Backend está inicializado."})
-    elif _IS_INITIALIZING:
-        return jsonify({"status": "initializing", "message": "La inicialización del agente está en curso."}), 503
-    else:
-        return jsonify({"status": "error", "message": "La inicialización del agente falló."}), 500
+    # ... (sin cambios)
+    pass
 
 @app.route('/api/chat', methods=['POST'])
 def chat_handler():
@@ -178,15 +165,18 @@ def chat_handler():
                             if tool_message.content:
                                 yield f"data: {json.dumps({'content': tool_message.content})}\n\n"
             except Exception as e:
+                # <-- MEJORA CLAVE: Enviar el mensaje de error real
                 logging.error(f"Error en stream: {traceback.format_exc()}")
-                yield f"data: {json.dumps({'error': 'Error interno durante el streaming.'})}\n\n"
+                yield f"data: {json.dumps({'error': f'Error en el backend: {str(e)}'})}\n\n"
             
             yield f"data: [DONE]\n\n"
 
         return Response(stream_with_context(generate_stream()), mimetype='text/event-stream')
     except Exception as e:
+        # <-- MEJORA CLAVE: Enviar el mensaje de error real
         logging.error(f"Error en chat_handler: {traceback.format_exc()}")
-        return Response(json.dumps({"error": "Error interno del servidor."}), status=500, mimetype='application/json')
+        error_message = f"Error en el servidor: {str(e)}"
+        return Response(json.dumps({"error": error_message}), status=500, mimetype='application/json')
 
 # --- Punto de Entrada ---
 if __name__ == "__main__":

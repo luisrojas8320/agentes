@@ -2,19 +2,20 @@
 'use client';
 
 import { createContext, useContext, useState, ReactNode, FC } from 'react';
-import { streamChatMessage } from '@/lib/chat'; // <-- Importamos la nueva función
+import { streamChatMessage } from '@/lib/chat';
 
+// ... (Interfaz Message y ChatContextType sin cambios)
 interface Message {
   id: string;
   role: 'user' | 'assistant';
   content: string;
 }
-
 interface ChatContextType {
   messages: Message[];
   isLoading: boolean;
   sendMessage: (messageContent: string) => Promise<void>;
 }
+
 
 const ChatContext = createContext<ChatContextType | undefined>(undefined);
 
@@ -27,17 +28,12 @@ export const ChatProvider: FC<{ children: ReactNode }> = ({ children }) => {
 
     setIsLoading(true);
     const newUserMessage: Message = { id: Date.now().toString(), role: 'user', content: messageContent };
-    
-    // Creamos un ID para el mensaje del asistente por adelantado
     const assistantMessageId = (Date.now() + 1).toString();
-    
-    // Añadimos el mensaje del usuario y un mensaje vacío del asistente
     setMessages(prev => [...prev, newUserMessage, { id: assistantMessageId, role: 'assistant', content: '' }]);
 
     await streamChatMessage(
-      [...messages, newUserMessage], // Enviamos el historial actualizado
+      [...messages, newUserMessage],
       (chunk) => {
-        // Callback 'onChunk': actualiza el último mensaje del asistente con el nuevo trozo
         setMessages(prev =>
           prev.map(msg =>
             msg.id === assistantMessageId
@@ -47,18 +43,17 @@ export const ChatProvider: FC<{ children: ReactNode }> = ({ children }) => {
         );
       },
       (error) => {
-        // Callback 'onError': muestra un mensaje de error
+        // <-- MEJORA CLAVE: Mostrar el mensaje de error en la UI
         setMessages(prev =>
             prev.map(msg =>
               msg.id === assistantMessageId
-                ? { ...msg, content: `Error: ${error.message}` }
+                ? { ...msg, content: `**Error:** ${error.message}` } // <-- Muestra el error
                 : msg
             )
           );
         setIsLoading(false);
       },
       () => {
-        // Callback 'onDone': se ejecuta cuando el stream termina
         setIsLoading(false);
       }
     );
@@ -71,10 +66,11 @@ export const ChatProvider: FC<{ children: ReactNode }> = ({ children }) => {
   );
 };
 
+// ... (hook useChat sin cambios)
 export const useChat = () => {
-  const context = useContext(ChatContext);
-  if (context === undefined) {
-    throw new Error('useChat debe ser usado dentro de un ChatProvider');
-  }
-  return context;
-};
+    const context = useContext(ChatContext);
+    if (context === undefined) {
+      throw new Error('useChat debe ser usado dentro de un ChatProvider');
+    }
+    return context;
+  };
