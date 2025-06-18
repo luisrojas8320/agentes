@@ -31,8 +31,7 @@ logging.basicConfig(level=logging.INFO)
 _APP_GRAPH = None
 _IS_INITIALIZING = False
 
-
-# --- Funciones de Ayuda (Completas) ---
+# --- Funciones de Ayuda (Completas y en orden) ---
 def create_supabase_client() -> Client:
     url: str = os.environ.get("SUPABASE_URL")
     key: str = os.environ.get("SUPABASE_ANON_KEY")
@@ -88,6 +87,7 @@ def get_all_available_tools(supabase: Client) -> list:
     logging.info(f"Cargadas {len(all_tools)} herramientas.")
     return all_tools
 
+# --- Lógica de Creación del Grafo con Logging de Depuración ---
 def get_or_create_agent_graph():
     global _APP_GRAPH, _IS_INITIALIZING
     if _APP_GRAPH is not None: return _APP_GRAPH
@@ -109,9 +109,26 @@ def get_or_create_agent_graph():
             return {"messages": [llm_with_tools.invoke(state['messages'])]}
 
         def call_tool_executor(state):
-            tool_calls = state['messages'][-1].tool_calls
-            tool_outputs = tool_executor_instance.batch(tool_calls)
-            return {"messages": [ToolMessage(content=str(output), tool_call_id=call['id']) for call, output in zip(tool_calls, tool_outputs)]}
+            try:
+                last_message = state['messages'][-1]
+                
+                logging.info("--- INICIANDO EJECUCIÓN DE HERRAMIENTA ---")
+                logging.info(f"Mensaje recibido por el ejecutor: {last_message}")
+                logging.info(f"Tipo de mensaje: {type(last_message)}")
+                
+                tool_calls = last_message.tool_calls
+                logging.info(f"Tool calls extraídos: {tool_calls}")
+                logging.info(f"Tipo de tool_calls: {type(tool_calls)}")
+
+                if not tool_calls:
+                    logging.warning("call_tool_executor fue llamado pero no se encontraron tool_calls.")
+                    return {"messages": [AIMessage(content="No se encontró una herramienta para llamar.")]}
+
+                tool_outputs = tool_executor_instance.batch(tool_calls)
+                return {"messages": [ToolMessage(content=str(output), tool_call_id=call['id']) for call, output in zip(tool_calls, tool_outputs)]}
+            except Exception as e:
+                logging.error(f"ERROR DENTRO DE call_tool_executor: {traceback.format_exc()}")
+                return {"messages": [ToolMessage(content=f"Error al ejecutar la herramienta: {e}", tool_call_id="error_tool_call")]}
 
         def should_continue(state):
             return "action" if state['messages'][-1].tool_calls else END
@@ -132,11 +149,17 @@ def get_or_create_agent_graph():
     finally:
         _IS_INITIALIZING = False
 
-# --- Rutas de la API (con manejo de errores mejorado) ---
+# --- Rutas de la API ---
 @app.route("/")
 def health_check():
-    # ... (sin cambios)
-    pass
+    if _APP_GRAPH is None and not _IS_INITIALIZING:
+        get_or_create_agent_graph()
+    if _APP_GRAPH:
+        return jsonify({"status": "ok", "message": "AI Playground Agent Backend está inicializado."})
+    elif _IS_INITIALIZING:
+        return jsonify({"status": "initializing", "message": "La inicialización del agente está en curso."}), 503
+    else:
+        return jsonify({"status": "error", "message": "La inicialización del agente falló."}), 500
 
 @app.route('/api/chat', methods=['POST'])
 def chat_handler():
@@ -165,7 +188,6 @@ def chat_handler():
                             if tool_message.content:
                                 yield f"data: {json.dumps({'content': tool_message.content})}\n\n"
             except Exception as e:
-                # <-- MEJORA CLAVE: Enviar el mensaje de error real
                 logging.error(f"Error en stream: {traceback.format_exc()}")
                 yield f"data: {json.dumps({'error': f'Error en el backend: {str(e)}'})}\n\n"
             
@@ -173,7 +195,6 @@ def chat_handler():
 
         return Response(stream_with_context(generate_stream()), mimetype='text/event-stream')
     except Exception as e:
-        # <-- MEJORA CLAVE: Enviar el mensaje de error real
         logging.error(f"Error en chat_handler: {traceback.format_exc()}")
         error_message = f"Error en el servidor: {str(e)}"
         return Response(json.dumps({"error": error_message}), status=500, mimetype='application/json')
