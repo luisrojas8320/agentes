@@ -4,6 +4,7 @@ import operator
 import logging
 import traceback
 import json
+from datetime import datetime, timezone # <-- NUEVO: Importar para manejar la fecha
 from flask import Flask, request, Response, stream_with_context, jsonify
 from flask_cors import CORS
 from dotenv import load_dotenv
@@ -30,7 +31,7 @@ logging.basicConfig(level=logging.INFO)
 _APP_GRAPH = None
 _IS_INITIALIZING = False
 
-# --- Funciones de Ayuda ---
+# --- Funciones de Ayuda (Completas y en orden) ---
 def create_supabase_client() -> Client:
     url: str = os.environ.get("SUPABASE_URL")
     key: str = os.environ.get("SUPABASE_ANON_KEY")
@@ -111,7 +112,13 @@ def get_or_create_agent_graph():
         def call_tool_executor(state):
             last_message = state['messages'][-1]
             tool_calls = last_message.tool_calls
-            original_query = state['messages'][0].content if state['messages'] else ""
+            # Extraer la consulta original del usuario para el resumen
+            original_query = ""
+            for msg in reversed(state['messages']):
+                if isinstance(msg, HumanMessage):
+                    original_query = msg.content
+                    break
+            
             tool_outputs = []
             tool_map = {tool.name: tool for tool in all_tools}
             for call in tool_calls:
@@ -119,13 +126,10 @@ def get_or_create_agent_graph():
                 if tool_name in tool_map:
                     try:
                         output = tool_map[tool_name].invoke(call.get("args"))
-                        # --- LLAMADA A LA FUNCIÓN DE RESUMEN ---
                         summarized_output = summarize_if_needed(original_query, str(output))
                         tool_outputs.append(ToolMessage(content=summarized_output, tool_call_id=call.get("id")))
                     except Exception as e:
-                        error_message = f"Error al ejecutar la herramienta '{tool_name}': {e}"
-                        logging.error(f"{error_message} - Traceback: {traceback.format_exc()}")
-                        tool_outputs.append(ToolMessage(content=error_message, tool_call_id=call.get("id")))
+                        tool_outputs.append(ToolMessage(content=f"Error al ejecutar '{tool_name}': {e}", tool_call_id=call.get("id")))
                 else:
                     tool_outputs.append(ToolMessage(content=f"Error: Herramienta '{tool_name}' no encontrada.", tool_call_id=call.get("id")))
             return {"messages": tool_outputs}
@@ -165,8 +169,15 @@ def chat_handler():
         data = request.get_json()
         history = data.get('messages', [])
         input_messages = [HumanMessage(content=msg['content']) if msg['role'] == 'user' else AIMessage(content=msg['content']) for msg in history]
-        system_prompt = "Eres un orquestador experto. Analiza la petición y delega a la herramienta más adecuada. Si es un saludo o una pregunta general sin tarea clara, responde directamente. Cuando una herramienta te devuelva información, sintetízala en una respuesta clara y concisa para el usuario."
-        if not any(isinstance(m, SystemMessage) for m in input_messages):
+        
+        # --- MEJORA CLAVE: Añadir conciencia temporal al prompt del sistema ---
+        current_date = datetime.now(timezone.utc).strftime('%d de %B de %Y')
+        system_prompt = f"Hoy es {current_date}. Eres un orquestador experto. Analiza la petición y delega a la herramienta más adecuada. Si es un saludo o una pregunta general sin tarea clara, responde directamente. Cuando una herramienta te devuelva información, sintetízala en una respuesta clara y concisa para el usuario, basándote siempre en la fecha actual para determinar qué es presente y qué es futuro."
+        
+        # Inyectar o reemplazar el system prompt
+        if input_messages and isinstance(input_messages[0], SystemMessage):
+            input_messages[0] = SystemMessage(content=system_prompt)
+        else:
             input_messages.insert(0, SystemMessage(content=system_prompt))
             
         def generate_stream():
@@ -182,6 +193,7 @@ def chat_handler():
                 logging.error(f"Error en stream: {traceback.format_exc()}")
                 yield f"data: {json.dumps({'error': f'Error en el backend: {str(e)}'})}\n\n"
             yield f"data: [DONE]\n\n"
+            
         return Response(stream_with_context(generate_stream()), mimetype='text/event-stream')
     except Exception as e:
         logging.error(f"Error en chat_handler: {traceback.format_exc()}")
