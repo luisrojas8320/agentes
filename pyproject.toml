@@ -4,25 +4,26 @@ version = "0.1.0"
 description = "Plataforma de agentes de IA"
 authors = ["luis <luisrojasviteri8@gmail.com>"]
 readme = "README.md"
+package-mode = false
 
 [tool.poetry.dependencies]
 python = ">=3.12, <4.0"
 
 # --- Framework y Utilidades ---
-Flask = "3.0.3"
-gunicorn = "22.0.0"
-python-dotenv = "1.0.1"
-supabase = "2.5.0"
+Flask = "^3.0.3"
+gunicorn = "^22.0.0"
+python-dotenv = "^1.0.1"
+supabase = "^2.5.0"
 pydantic = "<3"
-tiktoken = "0.7.0"
+tiktoken = "^0.7.0"
+flask-cors = "^4.0.1"
 
-# --- Stack LangChain (Conjunto Exacto y Compatible) ---
-langchain = "0.2.5"
-langchain-core = "0.2.10"
-langchain-community = "0.2.10"
-langgraph = "0.1.5"
-langchain-openai = "0.1.17"
-langchain-google-genai = "1.0.6"
+# --- Stack LangChain (con versiones compatibles) ---
+langchain = "^0.2.5"
+langgraph = "^0.1.5"
+langchain-openai = "^0.1.17"
+langchain-google-genai = "^1.0.6"
+
 
 [build-system]
 requires = ["poetry-core"]
