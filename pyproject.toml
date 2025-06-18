@@ -1,0 +1,28 @@
+[project]
+name = "agentes-nuevo"
+version = "0.1.0"
+description = ""
+authors = [
+    {name = "luis",email = "luisrojasviteri8@gmail.com"}
+]
+readme = "README.md"
+requires-python = ">=3.12, <4.0"
+dependencies = [
+    "flask (>=3.1.1,<4.0.0)",
+    "gunicorn (>=23.0.0,<24.0.0)",
+    "python-dotenv (>=1.1.0,<2.0.0)",
+    "supabase (>=2.15.3,<3.0.0)",
+    "pydantic (<3)",
+    "tiktoken (>=0.9.0,<0.10.0)",
+    "langchain (>=0.3.25,<0.4.0)",
+    "langchain-core (>=0.3.65,<0.4.0)",
+    "langchain-community (>=0.3.25,<0.4.0)",
+    "langgraph (>=0.4.8,<0.5.0)",
+    "langchain-openai (>=0.3.24,<0.4.0)",
+    "langchain-google-genai (>=2.1.5,<3.0.0)"
+]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
