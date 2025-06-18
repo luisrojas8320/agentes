@@ -18,7 +18,6 @@ from langchain.tools import StructuredTool
 from pydantic import BaseModel, Field
 from typing import TypedDict, Annotated, Sequence
 from langgraph.graph import StateGraph, END
-from langgraph.prebuilt import ToolExecutor
 
 from api.tools import internet_search, analyze_url_content
 
@@ -31,7 +30,7 @@ logging.basicConfig(level=logging.INFO)
 _APP_GRAPH = None
 _IS_INITIALIZING = False
 
-# --- Funciones de Ayuda (sin cambios) ---
+# --- Funciones de Ayuda (Completas y en orden) ---
 def create_supabase_client() -> Client:
     url: str = os.environ.get("SUPABASE_URL")
     key: str = os.environ.get("SUPABASE_ANON_KEY")
@@ -68,7 +67,7 @@ def get_all_available_tools(supabase: Client) -> list:
     logging.info(f"Cargadas {len(all_tools)} herramientas.")
     return all_tools
 
-# --- Lógica de Creación del Grafo con Ejecutor de Herramientas Manual ---
+# --- Lógica de Creación del Grafo ---
 def get_or_create_agent_graph():
     global _APP_GRAPH, _IS_INITIALIZING
     if _APP_GRAPH is not None: return _APP_GRAPH
@@ -88,20 +87,15 @@ def get_or_create_agent_graph():
         def call_model(state):
             return {"messages": [llm_with_tools.invoke(state['messages'])]}
 
-        # --- CORRECCIÓN DEFINITIVA: Ejecutor de Herramientas Manual ---
         def call_tool_executor(state):
             last_message = state['messages'][-1]
             tool_calls = last_message.tool_calls
             tool_outputs = []
-
-            # Creamos un mapa de herramientas para un acceso rápido
             tool_map = {tool.name: tool for tool in all_tools}
-
             for call in tool_calls:
                 tool_name = call.get("name")
                 if tool_name in tool_map:
                     try:
-                        # Invocamos la herramienta con sus argumentos
                         output = tool_map[tool_name].invoke(call.get("args"))
                         tool_outputs.append(ToolMessage(content=str(output), tool_call_id=call.get("id")))
                     except Exception as e:
@@ -110,7 +104,6 @@ def get_or_create_agent_graph():
                         tool_outputs.append(ToolMessage(content=error_message, tool_call_id=call.get("id")))
                 else:
                     tool_outputs.append(ToolMessage(content=f"Error: Herramienta '{tool_name}' no encontrada.", tool_call_id=call.get("id")))
-            
             return {"messages": tool_outputs}
 
         def should_continue(state):
@@ -132,16 +125,56 @@ def get_or_create_agent_graph():
     finally:
         _IS_INITIALIZING = False
 
-# --- Rutas de la API (sin cambios desde la última versión) ---
+# --- Rutas de la API (Completas) ---
 @app.route("/")
 def health_check():
-    # ... (sin cambios)
-    pass
+    if _APP_GRAPH is None and not _IS_INITIALIZING:
+        get_or_create_agent_graph()
+    if _APP_GRAPH:
+        return jsonify({"status": "ok", "message": "AI Playground Agent Backend está inicializado."})
+    elif _IS_INITIALIZING:
+        return jsonify({"status": "initializing", "message": "La inicialización del agente está en curso."}), 503
+    else:
+        return jsonify({"status": "error", "message": "La inicialización del agente falló."}), 500
 
 @app.route('/api/chat', methods=['POST'])
 def chat_handler():
-    # ... (sin cambios)
-    pass
+    app_graph = get_or_create_agent_graph()
+    if app_graph is None:
+        return Response(json.dumps({"error": "Agente no disponible."}), status=503, mimetype='application/json')
+
+    try:
+        data = request.get_json()
+        history = data.get('messages', [])
+        input_messages = [HumanMessage(content=msg['content']) if msg['role'] == 'user' else AIMessage(content=msg['content']) for msg in history]
+        
+        system_prompt = "Eres un orquestador experto. Analiza la petición y delega a la herramienta más adecuada. Si es un saludo o una pregunta general sin tarea clara, responde directamente. Si una herramienta devuelve un error, informa al usuario sobre el error de forma clara."
+        if not any(isinstance(m, SystemMessage) for m in input_messages):
+            input_messages.insert(0, SystemMessage(content=system_prompt))
+            
+        def generate_stream():
+            try:
+                for chunk in app_graph.stream({"messages": input_messages}, config={"recursion_limit": 25}):
+                    for key, value in chunk.items():
+                        if key == 'agent' and 'messages' in value:
+                            ai_message = value['messages'][-1]
+                            if ai_message.content and not ai_message.tool_calls:
+                                yield f"data: {json.dumps({'content': ai_message.content})}\n\n"
+                        elif key == 'action' and 'messages' in value:
+                            tool_message = value['messages'][-1]
+                            if tool_message.content:
+                                yield f"data: {json.dumps({'content': tool_message.content})}\n\n"
+            except Exception as e:
+                logging.error(f"Error en stream: {traceback.format_exc()}")
+                yield f"data: {json.dumps({'error': f'Error en el backend: {str(e)}'})}\n\n"
+            
+            yield f"data: [DONE]\n\n"
+
+        return Response(stream_with_context(generate_stream()), mimetype='text/event-stream')
+    except Exception as e:
+        logging.error(f"Error en chat_handler: {traceback.format_exc()}")
+        error_message = f"Error en el servidor: {str(e)}"
+        return Response(json.dumps({"error": error_message}), status=500, mimetype='application/json')
 
 # --- Punto de Entrada ---
 if __name__ == "__main__":
