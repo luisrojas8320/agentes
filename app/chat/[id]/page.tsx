@@ -4,8 +4,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Menu, Link, Mic, Wand2, ScanSearch } from "lucide-react";
 import Sidebar from "@/components/Sidebar";
 import ChatMessage from "@/components/ChatMessage";
-import { useState, FormEvent } from "react";
-import { postChatMessage } from "@/lib/chat"; // <-- 1. IMPORTAR LA NUEVA FUNCIÓN
+import { useState, FormEvent, useRef, useEffect } from "react";
+import { postChatMessage } from "@/lib/chat";
 
 interface Message {
   id: string;
@@ -18,31 +18,53 @@ export default function ChatPage() {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const chatContainerRef = useRef<HTMLDivElement>(null);
+
+  // Efecto para hacer scroll hacia el último mensaje
+  useEffect(() => {
+    chatContainerRef.current?.scrollTo({
+      top: chatContainerRef.current.scrollHeight,
+      behavior: 'smooth',
+    });
+  }, [messages]);
 
   const sendMessage = async (messageContent: string) => {
     if (isLoading || !messageContent.trim()) return;
+    
     setIsLoading(true);
-
     const newUserMessage: Message = { id: Date.now().toString(), role: 'user', content: messageContent };
     const updatedMessages = [...messages, newUserMessage];
     setMessages(updatedMessages);
 
-    // --- 2. LÓGICA DE PETICIÓN MODIFICADA ---
-    // Ahora llama a la función centralizada que apunta a Google Cloud Run
-    const assistantResponseContent = await postChatMessage(updatedMessages);
-    
-    const assistantMessage: Message = { 
-      id: (Date.now() + 1).toString(), 
-      role: 'assistant', 
-      content: assistantResponseContent 
-    };
-    setMessages(prev => [...prev, assistantMessage]);
-    // --- FIN DEL CAMBIO ---
+    try {
+      // La función postChatMessage ahora maneja los errores internamente y siempre devuelve un string.
+      const assistantResponseContent = await postChatMessage(updatedMessages);
+      
+      const assistantMessage: Message = { 
+        id: (Date.now() + 1).toString(), 
+        role: 'assistant', 
+        content: assistantResponseContent 
+      };
+      setMessages(prev => [...prev, assistantMessage]);
 
-    setIsLoading(false);
+    } catch (error) {
+      // Este catch es un seguro adicional en caso de un error inesperado.
+      console.error("Error inesperado en la página de chat:", error);
+      const errorMessage: Message = { 
+        id: (Date.now() + 1).toString(), 
+        role: 'assistant', 
+        content: "Ocurrió un error crítico en la aplicación." 
+      };
+      setMessages(prev => [...prev, errorMessage]);
+    } finally {
+      // --- LA CORRECCIÓN CLAVE ---
+      // El bloque finally se asegura de que isLoading siempre se ponga en false,
+      // incluso si la petición falla.
+      setIsLoading(false);
+    }
   };
 
-  const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
     sendMessage(input);
     setInput('');
@@ -62,7 +84,7 @@ export default function ChatPage() {
             <Button onClick={() => setIsSidebarOpen(!isSidebarOpen)} size="icon" variant="ghost"><Menu className="h-6 w-6" /></Button>
         </header>
         {isSidebarOpen && (<div className="md:hidden"><Sidebar /></div>)}
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        <div ref={chatContainerRef} className="flex-1 overflow-y-auto p-4 space-y-4">
           {messages.length > 0 ? (
             messages.map((m) => <ChatMessage key={m.id} message={m} />)
           ) : (
@@ -87,7 +109,7 @@ export default function ChatPage() {
                   placeholder="O asigna una tarea más detallada aquí..."
                   rows={4} value={input}
                   onChange={(e) => setInput(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit(e as any); } }}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit(e); } }}
                 />
                 <div className="flex justify-between items-center mt-4">
                   <div className="flex items-center gap-4"><Button type="button" variant="ghost" size="icon" className="text-gray-400 hover:text-white"><Link className="h-5 w-5" /></Button></div>
