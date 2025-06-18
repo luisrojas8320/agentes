@@ -19,7 +19,6 @@ from pydantic import BaseModel, Field
 from typing import TypedDict, Annotated, Sequence
 from langgraph.graph import StateGraph, END
 
-# Importamos las herramientas desde su propio módulo
 from api.tools import internet_search, analyze_url_content
 
 # --- Configuración Inicial y Estado Global ---
@@ -31,7 +30,7 @@ logging.basicConfig(level=logging.INFO)
 _APP_GRAPH = None
 _IS_INITIALIZING = False
 
-# --- Funciones de Ayuda (Completas y en orden) ---
+# --- Funciones de Ayuda ---
 def create_supabase_client() -> Client:
     url: str = os.environ.get("SUPABASE_URL")
     key: str = os.environ.get("SUPABASE_ANON_KEY")
@@ -44,6 +43,28 @@ def get_chat_model(provider: str, model_name: str, temperature: float = 0.0):
     if provider == "openai": return ChatOpenAI(model=model_name, temperature=temperature, api_key=api_key, streaming=True)
     elif provider == "google": return ChatGoogleGenerativeAI(model=model_name, temperature=temperature, api_key=api_key, convert_system_message_to_human=True, streaming=True)
     else: return ChatOpenAI(model="gpt-4o-mini", temperature=temperature, api_key=os.environ.get("OPENAI_API_KEY"), streaming=True)
+
+def summarize_if_needed(original_query: str, tool_output: str) -> str:
+    """Resume el texto si excede un límite de caracteres para evitar errores de contexto."""
+    MAX_CHARS = 32000 # Límite conservador (aprox 8k tokens)
+    if len(tool_output) > MAX_CHARS:
+        logging.warning(f"La salida de la herramienta excede los {MAX_CHARS} caracteres. Resumiendo...")
+        summarizer_model = get_chat_model("openai", "gpt-4o-mini")
+        prompt = f"""Dada la siguiente pregunta del usuario y el resultado de una herramienta de búsqueda, extrae y resume concisamente solo la información directamente relevante para responder la pregunta.
+
+Pregunta Original del Usuario: "{original_query}"
+
+Resultado de la Herramienta:
+---
+{tool_output[:MAX_CHARS]}
+---
+
+Resumen Relevante:"""
+        
+        response = summarizer_model.invoke([HumanMessage(content=prompt)])
+        logging.info(f"Resumen generado: {response.content}")
+        return response.content
+    return tool_output
 
 def get_all_available_tools(supabase: Client) -> list:
     all_tools = []
@@ -90,6 +111,7 @@ def get_or_create_agent_graph():
         def call_tool_executor(state):
             last_message = state['messages'][-1]
             tool_calls = last_message.tool_calls
+            original_query = state['messages'][0].content if state['messages'] else ""
             tool_outputs = []
             tool_map = {tool.name: tool for tool in all_tools}
             for call in tool_calls:
@@ -97,7 +119,9 @@ def get_or_create_agent_graph():
                 if tool_name in tool_map:
                     try:
                         output = tool_map[tool_name].invoke(call.get("args"))
-                        tool_outputs.append(ToolMessage(content=str(output), tool_call_id=call.get("id")))
+                        # --- LLAMADA A LA FUNCIÓN DE RESUMEN ---
+                        summarized_output = summarize_if_needed(original_query, str(output))
+                        tool_outputs.append(ToolMessage(content=summarized_output, tool_call_id=call.get("id")))
                     except Exception as e:
                         error_message = f"Error al ejecutar la herramienta '{tool_name}': {e}"
                         logging.error(f"{error_message} - Traceback: {traceback.format_exc()}")
@@ -128,20 +152,15 @@ def get_or_create_agent_graph():
 # --- Rutas de la API (Completas) ---
 @app.route("/")
 def health_check():
-    if _APP_GRAPH is None and not _IS_INITIALIZING:
-        get_or_create_agent_graph()
-    if _APP_GRAPH:
-        return jsonify({"status": "ok", "message": "AI Playground Agent Backend está inicializado."})
-    elif _IS_INITIALIZING:
-        return jsonify({"status": "initializing", "message": "La inicialización del agente está en curso."}), 503
-    else:
-        return jsonify({"status": "error", "message": "La inicialización del agente falló."}), 500
+    if _APP_GRAPH is None and not _IS_INITIALIZING: get_or_create_agent_graph()
+    if _APP_GRAPH: return jsonify({"status": "ok", "message": "AI Playground Agent Backend está inicializado."})
+    elif _IS_INITIALIZING: return jsonify({"status": "initializing", "message": "La inicialización del agente está en curso."}), 503
+    else: return jsonify({"status": "error", "message": "La inicialización del agente falló."}), 500
 
 @app.route('/api/chat', methods=['POST'])
 def chat_handler():
     app_graph = get_or_create_agent_graph()
-    if app_graph is None:
-        return Response(json.dumps({"error": "Agente no disponible."}), status=503, mimetype='application/json')
+    if app_graph is None: return Response(json.dumps({"error": "Agente no disponible."}), status=503, mimetype='application/json')
     try:
         data = request.get_json()
         history = data.get('messages', [])
@@ -163,7 +182,6 @@ def chat_handler():
                 logging.error(f"Error en stream: {traceback.format_exc()}")
                 yield f"data: {json.dumps({'error': f'Error en el backend: {str(e)}'})}\n\n"
             yield f"data: [DONE]\n\n"
-
         return Response(stream_with_context(generate_stream()), mimetype='text/event-stream')
     except Exception as e:
         logging.error(f"Error en chat_handler: {traceback.format_exc()}")
