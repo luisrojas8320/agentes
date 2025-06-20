@@ -1,58 +1,83 @@
 'use client';
-import { useState, FormEvent, useRef, ChangeEvent } from 'react';
+
+import { useState, useRef, KeyboardEvent } from 'react';
 import { useChat } from '@/contexts/ChatContext';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { Paperclip, Wand2, ScanSearch, Send } from 'lucide-react';
+import { Send, Paperclip, Loader2 } from 'lucide-react';
 
-export const ChatInput = () => {
+export default function ChatInput() {
   const [input, setInput] = useState('');
-  const { isLoading, sendMessage, uploadFile } = useChat();
+  const { sendMessage, isLoading, uploadFile } = useChat();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  const handleSubmit = (e: FormEvent) => {
-    e.preventDefault();
-    if (!input.trim()) return;
-    sendMessage(input);
-    setInput('');
+  const handleSubmit = async () => {
+    if (input.trim() && !isLoading) {
+      await sendMessage(input);
+      setInput('');
+      textareaRef.current?.focus();
+    }
   };
 
-  const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
+  const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSubmit();
+    }
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) uploadFile(file);
-    if (fileInputRef.current) fileInputRef.current.value = '';
+    if (file && uploadFile) {
+      await uploadFile(file);
+    }
   };
 
   return (
-    <div className="p-4 border-t border-gray-700 bg-[#181818]">
-      <div className="w-full max-w-3xl mx-auto">
-        <div className="flex items-center gap-2 mb-2 flex-wrap">
-          <Button onClick={() => sendMessage("Inicia la tarea de Crear.")} variant="secondary" className="bg-[#222222] hover:bg-[#2a2a2a]"><Wand2 className="mr-2 h-4 w-4" /> Crear</Button>
-          <Button onClick={() => sendMessage("Inicia la tarea de Analizar.")} variant="secondary" className="bg-[#222222] hover:bg-[#2a2a2a]"><ScanSearch className="mr-2 h-4 w-4" /> Analizar</Button>
-          <Button onClick={() => sendMessage("Inicia la tarea de Investigación.")} variant="secondary" className="bg-[#222222] hover:bg-[#2a2a2a]">Investigación</Button>
-        </div>
-        <form onSubmit={handleSubmit} className="relative w-full">
-          <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept="application/pdf" disabled={isLoading} />
+    <div className="border-t border-border p-4">
+      <div className="max-w-3xl mx-auto">
+        <div className="flex gap-2">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".pdf"
+            onChange={handleFileUpload}
+            className="hidden"
+          />
+          
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isLoading}
+          >
+            <Paperclip className="h-5 w-5" />
+          </Button>
+
           <Textarea
-            className="bg-[#2a2a2a] border-gray-600 text-base resize-none focus:ring-0 focus-visible:ring-offset-0 focus-visible:ring-0 pl-12 pr-20"
-            placeholder="Asigna una tarea, haz una pregunta o sube un archivo..."
-            rows={1}
+            ref={textareaRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit(e); } }}
-            disabled={isLoading} />
-          <div className="absolute left-2 top-1/2 -translate-y-1/2 flex items-center">
-            <Button type="button" size="icon" variant="ghost" onClick={() => fileInputRef.current?.click()} disabled={isLoading} className="hover:bg-gray-700">
-              <Paperclip className="h-5 w-5" />
-            </Button>
-          </div>
-          <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center">
-            <Button type="submit" size="icon" disabled={isLoading || !input.trim()} className="bg-blue-600 hover:bg-blue-700">
-              {isLoading ? <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div> : <Send className="h-4 w-4" />}
-            </Button>
-          </div>
-        </form>
+            onKeyDown={handleKeyDown}
+            placeholder="Escribe un mensaje..."
+            disabled={isLoading}
+            className="flex-1 min-h-[60px] max-h-[200px] resize-none"
+          />
+
+          <Button
+            onClick={handleSubmit}
+            disabled={!input.trim() || isLoading}
+            size="icon"
+          >
+            {isLoading ? (
+              <Loader2 className="h-5 w-5 animate-spin" />
+            ) : (
+              <Send className="h-5 w-5" />
+            )}
+          </Button>
+        </div>
       </div>
     </div>
   );
-};
+}

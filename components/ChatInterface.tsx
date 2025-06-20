@@ -1,40 +1,47 @@
 'use client';
 
-import { useChat } from '@/contexts/ChatContext';
+import { useState } from 'react';
+import Sidebar from '@/components/Sidebar';
+import MessageList from '@/components/MessageList';
+import ChatInput from '@/components/ChatInput';
+import { Menu, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { PlusCircle, MessageSquare } from 'lucide-react';
-import { cn } from '@/lib/utils';
 
-// CORREGIDO: Añadir 'export default' para que el componente pueda ser importado.
-export default function Sidebar() {
-    const { chats, activeThreadId, startNewChat, loadChat, isLoading } = useChat();
+export default function ChatInterface() {
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
-    return (
-        <div className="w-full md:w-64 bg-[#1c1c1c] border-r border-gray-700 p-4 flex flex-col h-full">
-            <h2 className="text-lg font-semibold mb-4 text-gray-200">Conversaciones</h2>
-            <Button onClick={startNewChat} className="mb-4 bg-blue-600 hover:bg-blue-700" disabled={isLoading}>
-                <PlusCircle className="mr-2 h-4 w-4" />
-                Nuevo Chat
-            </Button>
-            <div className="flex-grow overflow-y-auto pr-2 -mr-2">
-                <div className="flex flex-col gap-2">
-                    {chats.map((chat) => (
-                        <Button
-                            key={chat.id}
-                            variant="ghost"
-                            onClick={() => loadChat(chat.id)}
-                            disabled={isLoading}
-                            className={cn(
-                                'w-full justify-start text-left truncate text-gray-300',
-                                activeThreadId === chat.id ? 'bg-gray-700 text-white' : 'hover:bg-gray-800'
-                            )}
-                        >
-                            <MessageSquare className="mr-2 h-4 w-4 flex-shrink-0" />
-                            <span className="truncate">{chat.title || 'Chat sin título'}</span>
-                        </Button>
-                    ))}
-                </div>
-            </div>
-        </div>
-    );
-};
+  return (
+    <div className="flex h-screen bg-background">
+      {/* Mobile menu button */}
+      <Button
+        variant="ghost"
+        size="icon"
+        className="md:hidden absolute top-4 left-4 z-50"
+        onClick={() => setSidebarOpen(!sidebarOpen)}
+      >
+        {sidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+      </Button>
+
+      {/* Sidebar */}
+      <div className={`${
+        sidebarOpen ? 'translate-x-0' : '-translate-x-full'
+      } md:translate-x-0 fixed md:relative z-40 h-full transition-transform duration-300 ease-in-out`}>
+        <Sidebar />
+      </div>
+
+      {/* Overlay for mobile */}
+      {sidebarOpen && (
+        <div
+          className="md:hidden fixed inset-0 bg-black bg-opacity-50 z-30"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
+      {/* Main chat area */}
+      <div className="flex-1 flex flex-col">
+        <MessageList />
+        <ChatInput />
+      </div>
+    </div>
+  );
+}

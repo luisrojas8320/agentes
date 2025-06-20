@@ -1,14 +1,31 @@
-import { ChatProvider } from "@/contexts/ChatContext";
-import ChatInterface from "@/components/ChatInterface";
-import { Toaster } from "@/components/ui/sonner";
+'use client';
 
-export default function Home() {
+import { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import ChatInterface from '@/components/ChatInterface';
+import { AuthProvider } from '@/contexts/AuthContext';
+import { ChatProvider } from '@/contexts/ChatContext';
+import { createClient } from '@/utils/supabase/client';
+
+export default function ChatPage() {
+  const router = useRouter();
+  const supabase = createClient();
+
+  useEffect(() => {
+    const checkAuth = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        router.push('/login');
+      }
+    };
+    checkAuth();
+  }, [router, supabase]);
+
   return (
-    <main>
+    <AuthProvider>
       <ChatProvider>
         <ChatInterface />
       </ChatProvider>
-      <Toaster position="top-right" theme="dark" richColors />
-    </main>
+    </AuthProvider>
   );
 }

@@ -1,28 +1,65 @@
-import { User, Bot } from 'lucide-react';
-import ReactMarkdown from 'react-markdown';
+'use client';
 
-// Se define el tipo 'Message' localmente para no depender de la librería 'ai'
-interface Message {
-  id: string;
-  role: 'user' | 'assistant';
-  content: string;
-}
+import { Bot, User } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { oneDark } from 'react-syntax-highlighter/dist/cjs/styles/prism';
+import { cn } from '@/lib/utils';
 
 interface ChatMessageProps {
-  message: Message;
+  message: {
+    role: 'user' | 'assistant';
+    content: string;
+  };
 }
 
 export default function ChatMessage({ message }: ChatMessageProps) {
   const isUser = message.role === 'user';
-  
+
   return (
-    <div className={`flex items-start gap-4 p-4 ${isUser ? '' : 'bg-gray-800/20'}`}>
-      <div className={`flex h-8 w-8 items-center justify-center rounded-full ${isUser ? 'bg-blue-600' : 'bg-gray-600'}`}>
-        {isUser ? <User className="h-5 w-5 text-white" /> : <Bot className="h-5 w-5 text-white" />}
+    <div className={cn('flex gap-3', isUser && 'flex-row-reverse')}>
+      <div className={cn(
+        'flex h-8 w-8 shrink-0 select-none items-center justify-center rounded-full',
+        isUser ? 'bg-primary text-primary-foreground' : 'bg-secondary'
+      )}>
+        {isUser ? <User className="h-4 w-4" /> : <Bot className="h-4 w-4" />}
       </div>
-      <div className="flex-1 space-y-2 overflow-hidden pt-1">
-        <div className="prose prose-invert max-w-none text-white">
-          <ReactMarkdown>{message.content}</ReactMarkdown>
+      
+      <div className={cn(
+        'flex-1 space-y-2 overflow-hidden',
+        isUser && 'text-right'
+      )}>
+        <div className={cn(
+          'prose prose-invert inline-block text-left',
+          isUser && 'bg-primary text-primary-foreground rounded-lg px-4 py-2'
+        )}>
+          {isUser ? (
+            <p className="mb-0">{message.content}</p>
+          ) : (
+            <ReactMarkdown
+              components={{
+                code({ node, inline, className, children, ...props }: any) {
+                  const match = /language-(\w+)/.exec(className || '');
+                  return !inline && match ? (
+                    <SyntaxHighlighter
+                      style={oneDark}
+                      language={match[1]}
+                      PreTag="div"
+                      {...props}
+                    >
+                      {String(children).replace(/\n$/, '')}
+                    </SyntaxHighlighter>
+                  ) : (
+                    <code className={className} {...props}>
+                      {children}
+                    </code>
+                  );
+                },
+              }}
+            >
+              {message.content}
+            </ReactMarkdown>
+          )}
         </div>
       </div>
     </div>

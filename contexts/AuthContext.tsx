@@ -1,56 +1,65 @@
-// Ruta: contexts/AuthContext.tsx
+'use client';
 
-"use client"
-
-import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-// <-- CORRECCIÓN 1: Importar la nueva función de cliente y los tipos
+import { createContext, useContext, useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { createClient } from '@/utils/supabase/client';
-import type { AuthChangeEvent, Session, User } from '@supabase/supabase-js';
+import type { User } from '@supabase/supabase-js';
 
 interface AuthContextType {
   user: User | null;
   loading: boolean;
+  signOut: () => Promise<void>;
 }
 
-const AuthContext = createContext<AuthContextType>({ user: null, loading: true });
+const AuthContext = createContext<AuthContextType>({
+  user: null,
+  loading: true,
+  signOut: async () => {},
+});
 
-export function AuthProvider({ children }: { children: ReactNode }) {
-  // <-- CORRECCIÓN 2: Crear la instancia del cliente aquí
-  const supabase = createClient();
+export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const router = useRouter();
+  const supabase = createClient();
 
   useEffect(() => {
-    // La lógica interna es la misma, pero ahora usa el cliente correcto.
-    const checkUser = async () => {
+    const getUser = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       setUser(session?.user ?? null);
       setLoading(false);
     };
 
-    checkUser();
+    getUser();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (_event: AuthChangeEvent, session: Session | null) => {
+    const { data: authListener } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
         setUser(session?.user ?? null);
-        setLoading(false);
+        router.refresh();
       }
     );
 
     return () => {
-      subscription.unsubscribe();
+      authListener.subscription.unsubscribe();
     };
-  }, [supabase]); // <-- CORRECCIÓN 3: Añadir supabase como dependencia
+  }, [supabase, router]);
 
-  const value = { user, loading };
+  const signOut = async () => {
+    await supabase.auth.signOut();
+    router.push('/login');
+  };
 
-  return <AuthContext.Provider value={value}>{!loading && children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider value={{ user, loading, signOut }}>
+      {children}
+    </AuthContext.Provider>
+  );
 }
 
 export const useAuth = () => {
   const context = useContext(AuthContext);
-  if (context === undefined) {
-    throw new Error("useAuth must be used within an AuthProvider");
+  if (!context) {
+    throw new Error('useAuth must be used within an AuthProvider');
   }
   return context;
 };
