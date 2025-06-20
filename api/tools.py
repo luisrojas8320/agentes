@@ -1,7 +1,7 @@
-# Ruta: api/tools.py
 import os
 import requests
 import logging
+from supabase.client import Client
 
 def internet_search(query: str) -> str:
     """
@@ -27,7 +27,7 @@ def internet_search(query: str) -> str:
         return f"Error al intentar buscar en internet: {e}"
     except Exception as e:
         logging.error(f"Error inesperado en internet_search: {e}")
-        return f"Ocurrió un error inesperado al buscar en internet."
+        return "Ocurrió un error inesperado al buscar en internet."
 
 
 def analyze_url_content(url: str) -> str:
@@ -62,3 +62,27 @@ def analyze_url_content(url: str) -> str:
     except Exception as e:
         logging.error(f"Error inesperado en analyze_url_content: {e}")
         return "Ocurrió un error inesperado al analizar la URL."
+
+def search_my_documents(query: str, supabase_user_client: Client) -> str:
+    """
+    Busca información relevante en los documentos personales que el usuario ha subido previamente.
+    Utiliza búsqueda vectorial para encontrar los fragmentos más similares a la pregunta del usuario.
+    """
+    logging.info(f"Buscando en documentos personales para: '{query}'")
+    try:
+        # Llama a la función RPC 'match_documents' en Supabase
+        response = supabase_user_client.rpc('match_documents', {
+            'query_embedding': OpenAIEmbeddings(model="text-embedding-3-small").embed_query(query),
+            'match_threshold': 0.75,
+            'match_count': 5
+        }).execute()
+
+        if response.data:
+            documents = "\n---\n".join([doc['content'] for doc in response.data])
+            return f"Se encontró la siguiente información en tus documentos:\n\n{documents}"
+        else:
+            return "No se encontró información relevante en tus documentos personales para esta consulta."
+
+    except Exception as e:
+        logging.error(f"Error al buscar en documentos personales: {e}", exc_info=True)
+        return "Ocurrió un error al intentar buscar en tus documentos."
