@@ -20,7 +20,7 @@ except ImportError:
 
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_community.chat_models import ChatDeepseek
+# CORREGIDO: Remover ChatDeepseek que no existe
 from langchain_core.messages import (
     HumanMessage, SystemMessage, BaseMessage, ToolMessage, AIMessage
 )
@@ -96,8 +96,7 @@ def get_chat_model(provider: str, model_name: str, temperature: float = 0.0):
         return ChatOpenAI(model=model_name, temperature=temperature, api_key=api_key, streaming=True)
     elif provider == "google":
         return ChatGoogleGenerativeAI(model=model_name, temperature=temperature, api_key=api_key, convert_system_message_to_human=True, streaming=True)
-    elif provider == "deepseek":
-        return ChatDeepseek(model=model_name, temperature=temperature, api_key=api_key, streaming=True)
+    # CORREGIDO: Remover soporte para Deepseek por ahora
     else:
         logging.warning(f"Proveedor '{provider}' no soportado. Usando OpenAI gpt-4o-mini como fallback.")
         return ChatOpenAI(model="gpt-4o-mini", temperature=temperature, api_key=os.environ.get("OPENAI_API_KEY"), streaming=True)
@@ -127,6 +126,11 @@ def get_all_available_tools(supabase_user_client: Client) -> list:
         response = supabase_user_client.from_("agents").select("name, description, model_provider, model_name, system_prompt").neq("name", "Asistente Orquestador").execute()
         if response.data:
             for agent_config in response.data:
+                # CORREGIDO: Solo procesar agentes con proveedores soportados
+                if agent_config['model_provider'].lower() not in ['openai', 'google']:
+                    logging.warning(f"Saltando agente {agent_config['name']} con proveedor no soportado: {agent_config['model_provider']}")
+                    continue
+                    
                 class ToolSchema(BaseModel):
                     task: str = Field(description=f"La tarea o pregunta detallada para el agente '{agent_config['name']}'.")
                 
