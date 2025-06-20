@@ -28,6 +28,7 @@ interface ChatContextType {
   sendMessage: (content: string) => Promise<void>;
   startNewChat: () => void;
   loadChat: (chatId: string) => Promise<void>;
+  deleteChat: (chatId: string) => void;
   uploadFile?: (file: File) => Promise<void>;
 }
 
@@ -100,6 +101,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const startNewChat = () => {
     setActiveThreadId(null);
     setMessages([]);
+  };
+
+  const deleteChat = (chatId: string) => {
+    setChats(prev => prev.filter(chat => chat.id !== chatId));
   };
 
   const sendMessage = async (content: string) => {
@@ -324,7 +329,17 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
   return (
     <ChatContext.Provider
-      value={{ messages, chats, activeThreadId, isLoading, sendMessage, startNewChat, loadChat, uploadFile }}
+      value={{ 
+        messages, 
+        chats, 
+        activeThreadId, 
+        isLoading, 
+        sendMessage, 
+        startNewChat, 
+        loadChat, 
+        deleteChat,
+        uploadFile 
+      }}
     >
       {children}
     </ChatContext.Provider>
