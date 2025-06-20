@@ -30,6 +30,7 @@ langgraph = ">=0.2.20,<0.3"
 # --- Dependencias de Base de Datos y Drivers ---
 psycopg2-binary = "^2.9.9"
 aiopg = "^1.4.0"
+asyncpg = "^0.30.0"
 
 [build-system]
 requires = ["poetry-core"]

@@ -8,9 +8,21 @@ from flask import Flask, request, Response, stream_with_context, jsonify
 from flask_cors import CORS
 from dotenv import load_dotenv
 from supabase.client import create_client, Client
-import psycopg2
 
-from langgraph.checkpoint.aiopg import AsyncPostgresSaver
+# CORREGIDO: Importación correcta para PostgreSQL con LangGraph
+try:
+    from langgraph.checkpoint.postgres import AsyncPostgresSaver
+    POSTGRES_AVAILABLE = True
+    logging.info("PostgreSQL AsyncPostgresSaver disponible")
+except ImportError:
+    try:
+        from langgraph.checkpoint.sqlite import SqliteSaver
+        POSTGRES_AVAILABLE = False
+        logging.warning("PostgreSQL no disponible, usando SQLite como fallback")
+    except ImportError:
+        logging.error("No hay checkpointer disponible")
+        raise
+
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_community.chat_models import ChatDeepseek
@@ -28,50 +40,81 @@ from api.rag_processor import process_and_store_document
 load_dotenv()
 app = Flask(__name__)
 
-# CORREGIDO: Añadir el nuevo dominio de Vercel
+# Configuración CORS
 origins = [
     "https://v0-next-js-14-project-nu.vercel.app",
-    "http://localhost:3000"
+    "http://localhost:3000",
+    "*"
 ]
 CORS(
     app,
-    resources={r"/api/*": {"origins": origins}},
+    resources={r"/*": {"origins": "*"}},
     supports_credentials=True,
     methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["Content-Type", "Authorization"]
+    allow_headers=["Content-Type", "Authorization", "Origin", "Accept"]
 )
 
-# CORREGIDO: Añadir OPTIONS handler explícito para todas las rutas
+@app.after_request
+def after_request(response):
+    origin = request.headers.get('Origin')
+    response.headers['Access-Control-Allow-Origin'] = origin or '*'
+    response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, Origin, Accept'
+    response.headers['Access-Control-Allow-Credentials'] = 'true'
+    return response
+
 @app.before_request
 def handle_preflight():
     if request.method == "OPTIONS":
         response = Response()
-        response.headers['Access-Control-Allow-Origin'] = request.headers.get('Origin', '*')
+        origin = request.headers.get('Origin')
+        response.headers['Access-Control-Allow-Origin'] = origin or '*'
         response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
-        response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
+        response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, Origin, Accept'
         response.headers['Access-Control-Allow-Credentials'] = 'true'
         return response
 
 logging.basicConfig(level=logging.INFO)
 
-db_url = os.environ.get("POSTGRES_URL")
-if not db_url:
-    raise ValueError("POSTGRES_URL no está configurada para la persistencia del grafo.")
-memory = AsyncPostgresSaver.from_conn_string(db_url)
+# CORREGIDO: Configurar checkpointer correctamente
+def setup_memory():
+    # CORREGIDO: Usar DATABASE_URL en lugar de POSTGRES_URL
+    db_url = os.environ.get("DATABASE_URL")
+    
+    if POSTGRES_AVAILABLE and db_url:
+        try:
+            memory = AsyncPostgresSaver.from_conn_string(db_url)
+            logging.info("Usando PostgreSQL para persistencia de conversaciones")
+            return memory, True
+        except Exception as e:
+            logging.error(f"Error configurando PostgreSQL: {e}")
+            logging.warning("Fallback a SQLite en memoria")
+    
+    # Fallback a SQLite
+    memory = SqliteSaver.from_conn_string(":memory:")
+    logging.info("Usando SQLite en memoria como fallback")
+    return memory, False
+
+memory, using_postgres = setup_memory()
 _APP_GRAPH = None
 _IS_INITIALIZING = False
 
 def create_supabase_client(admin=False) -> Client:
-    url = os.environ.get("NEXT_PUBLIC_SUPABASE_URL")
-    key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY") if admin else os.environ.get("NEXT_PUBLIC_SUPABASE_ANON_KEY")
-    if not url or not key: raise ValueError("Variables de Supabase no configuradas.")
+    url = os.environ.get("SUPABASE_URL")
+    anon_key = os.environ.get("SUPABASE_ANON_KEY")
+    service_key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+    
+    key = service_key if admin else anon_key
+    if not url or not key: 
+        raise ValueError(f"Variables de Supabase no configuradas. URL: {url}, Key: {'***' if key else None}")
     return create_client(url, key)
 
 def get_chat_model(provider: str, model_name: str, temperature: float = 0.0):
     provider = provider.lower()
     api_key_name = f"{provider.upper()}_API_KEY"
     api_key = os.environ.get(api_key_name)
-    if not api_key: raise ValueError(f"Variable de entorno {api_key_name} no encontrada.")
+    if not api_key: 
+        raise ValueError(f"Variable de entorno {api_key_name} no encontrada.")
     
     if provider == "openai":
         return ChatOpenAI(model=model_name, temperature=temperature, api_key=api_key, streaming=True)
@@ -127,10 +170,14 @@ def get_all_available_tools(supabase_user_client: Client) -> list:
 
 def get_or_create_agent_graph():
     global _APP_GRAPH, _IS_INITIALIZING
-    if _APP_GRAPH is not None: return _APP_GRAPH
-    if _IS_INITIALIZING: return None
+    if _APP_GRAPH is not None: 
+        return _APP_GRAPH
+    if _IS_INITIALIZING: 
+        return None
+    
     _IS_INITIALIZING = True
     logging.info("Iniciando la creación del grafo del agente...")
+    
     try:
         supabase_client = create_supabase_client(admin=False)
         all_tools = get_all_available_tools(supabase_client)
@@ -149,6 +196,7 @@ def get_or_create_agent_graph():
             original_query = next((msg.content for msg in reversed(state['messages']) if isinstance(msg, HumanMessage)), "")
             tool_outputs = []
             tool_map = {tool.name: tool for tool in all_tools}
+            
             for call in tool_calls:
                 tool_name = call.get("name")
                 if tool_name in tool_map:
@@ -160,6 +208,7 @@ def get_or_create_agent_graph():
                         tool_outputs.append(ToolMessage(content=f"Error al ejecutar '{tool_name}': {e}", tool_call_id=call.get("id")))
                 else:
                     tool_outputs.append(ToolMessage(content=f"Error: Herramienta '{tool_name}' no encontrada.", tool_call_id=call.get("id")))
+            
             return {"messages": tool_outputs}
 
         workflow = StateGraph(AgentState)
@@ -172,6 +221,7 @@ def get_or_create_agent_graph():
         _APP_GRAPH = workflow.compile(checkpointer=memory)
         logging.info("Grafo del agente compilado con memoria persistente y listo para usar.")
         return _APP_GRAPH
+        
     except Exception as e:
         logging.error(f"ERROR FATAL DURANTE LA INICIALIZACIÓN: {e}", exc_info=True)
         _APP_GRAPH = None
@@ -196,9 +246,21 @@ def get_user_from_token(request):
 
 @app.route("/")
 def health_check():
-    response = jsonify({"status": "ok", "message": "AI Playground Agent Backend está inicializado."})
-    response.headers['Access-Control-Allow-Origin'] = '*'
-    return response
+    if _APP_GRAPH is None and not _IS_INITIALIZING:
+        get_or_create_agent_graph()
+    
+    if _APP_GRAPH:
+        db_type = "PostgreSQL" if using_postgres else "SQLite"
+        return jsonify({
+            "status": "ok", 
+            "message": "AI Playground Agent Backend está inicializado.",
+            "database": db_type,
+            "memory_type": "Persistente" if using_postgres else "En memoria"
+        })
+    elif _IS_INITIALIZING:
+        return jsonify({"status": "initializing", "message": "La inicialización del agente está en curso."}), 503
+    else:
+        return jsonify({"status": "error", "message": "La inicialización del agente falló."}), 500
 
 @app.route('/api/chats', methods=['GET', 'OPTIONS'])
 def list_chats_handler():
@@ -251,16 +313,15 @@ def upload_handler():
         logging.error(f"Error en upload_handler: {traceback.format_exc()}")
         return jsonify({"error": "Error interno del servidor al subir el archivo"}), 500
 
+# CORREGIDO: Chat handler sin async cuando no es necesario
 @app.route('/api/chat', methods=['POST', 'OPTIONS'])
-async def chat_handler():
+def chat_handler():
     if request.method == 'OPTIONS':
         return Response()
         
     app_graph = get_or_create_agent_graph()
     if app_graph is None:
-        response = Response(json.dumps({"error": "Agente no disponible."}), status=503, mimetype='application/json')
-        response.headers['Access-Control-Allow-Origin'] = request.headers.get('Origin', '*')
-        return response
+        return Response(json.dumps({"error": "Agente no disponible."}), status=503, mimetype='application/json')
     
     user, error_response = get_user_from_token(request)
     if error_response:
@@ -272,9 +333,7 @@ async def chat_handler():
         thread_id = data.get('thread_id')
         
         if not messages_from_client:
-            response = Response(json.dumps({"error": "No se proporcionaron mensajes."}), status=400, mimetype='application/json')
-            response.headers['Access-Control-Allow-Origin'] = request.headers.get('Origin', '*')
-            return response
+            return Response(json.dumps({"error": "No se proporcionaron mensajes."}), status=400, mimetype='application/json')
 
         last_user_message = messages_from_client[-1]['content']
 
@@ -286,9 +345,7 @@ async def chat_handler():
             title = (last_user_message[:50] + '...') if len(last_user_message) > 50 else last_user_message
             response_db = supabase_client.from_('chats').insert({'user_id': user.id, 'title': title}).execute()
             if not response_db.data:
-                response = Response(json.dumps({"error": "No se pudo crear el chat en la base de datos."}), status=500, mimetype='application/json')
-                response.headers['Access-Control-Allow-Origin'] = request.headers.get('Origin', '*')
-                return response
+                return Response(json.dumps({"error": "No se pudo crear el chat en la base de datos."}), status=500, mimetype='application/json')
             thread_id = response_db.data[0]['id']
 
         config = {"configurable": {"thread_id": str(thread_id)}}
@@ -297,34 +354,63 @@ async def chat_handler():
         system_prompt = f"Hoy es {current_date}. Eres un orquestador experto. Tu principal objetivo es determinar la intención del usuario y seleccionar la herramienta más adecuada de tu lista. Si la petición es un saludo o una pregunta general sin tarea clara, responde directamente. Cuando una herramienta te devuelva información, sintetízala en una respuesta clara y concisa para el usuario, basándote siempre en la fecha actual."
         
         input_message = HumanMessage(content=last_user_message)
-        
-        current_state = await memory.aget(config)
-        input_messages = [SystemMessage(content=system_prompt), input_message] if not current_state else [input_message]
 
-        async def generate_stream():
+        # CORREGIDO: Manejo correcto de async/sync según el tipo de checkpointer
+        def generate_stream():
             try:
-                async for chunk in app_graph.astream({"messages": input_messages}, config=config, recursion_limit=25):
-                    if 'agent' in chunk:
-                        agent_messages = chunk['agent'].get('messages', [])
-                        if agent_messages:
-                            ai_message = agent_messages[-1]
-                            if ai_message.content and not ai_message.tool_calls:
-                                yield f"data: {json.dumps({'content': ai_message.content, 'thread_id': str(thread_id)})}\n\n"
+                if using_postgres:
+                    # Para PostgreSQL async
+                    import asyncio
+                    
+                    async def async_stream():
+                        current_state = await memory.aget(config)
+                        input_messages = [SystemMessage(content=system_prompt), input_message] if not current_state else [input_message]
+                        
+                        async for chunk in app_graph.astream({"messages": input_messages}, config=config, recursion_limit=25):
+                            if 'agent' in chunk:
+                                agent_messages = chunk['agent'].get('messages', [])
+                                if agent_messages:
+                                    ai_message = agent_messages[-1]
+                                    if ai_message.content and not ai_message.tool_calls:
+                                        yield f"data: {json.dumps({'content': ai_message.content, 'thread_id': str(thread_id)})}\n\n"
+                    
+                    # Ejecutar async function en sync context
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    try:
+                        async_gen = async_stream()
+                        while True:
+                            try:
+                                chunk = loop.run_until_complete(async_gen.__anext__())
+                                yield chunk
+                            except StopAsyncIteration:
+                                break
+                    finally:
+                        loop.close()
+                else:
+                    # Para SQLite sync
+                    current_state = memory.get(config)
+                    input_messages = [SystemMessage(content=system_prompt), input_message] if not current_state else [input_message]
+                    
+                    for chunk in app_graph.stream({"messages": input_messages}, config=config):
+                        if 'agent' in chunk:
+                            agent_messages = chunk['agent'].get('messages', [])
+                            if agent_messages:
+                                ai_message = agent_messages[-1]
+                                if ai_message.content and not ai_message.tool_calls:
+                                    yield f"data: {json.dumps({'content': ai_message.content, 'thread_id': str(thread_id)})}\n\n"
+                                    
             except Exception as e:
                 logging.error(f"Error en stream: {traceback.format_exc()}")
                 yield f"data: {json.dumps({'error': f'Error en el backend: {str(e)}'})}\n\n"
+            
             yield f"data: [DONE]\n\n"
             
-        response = Response(stream_with_context(generate_stream()), mimetype='text/event-stream')
-        response.headers['Access-Control-Allow-Origin'] = request.headers.get('Origin', '*')
-        response.headers['Access-Control-Allow-Credentials'] = 'true'
-        return response
+        return Response(stream_with_context(generate_stream()), mimetype='text/event-stream')
         
     except Exception as e:
         logging.error(f"Error en chat_handler: {traceback.format_exc()}")
-        response = Response(json.dumps({"error": f"Error en el servidor: {str(e)}"}), status=500, mimetype='application/json')
-        response.headers['Access-Control-Allow-Origin'] = request.headers.get('Origin', '*')
-        return response
+        return Response(json.dumps({"error": f"Error en el servidor: {str(e)}"}), status=500, mimetype='application/json')
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
