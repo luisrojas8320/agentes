@@ -9,11 +9,13 @@ interface Message {
   role: 'user' | 'assistant';
   content: string;
   created_at?: string;
+  isStreaming?: boolean;
+  isComplete?: boolean;
 }
 
 interface Chat {
   id: string;
-  title: string | null; // El título puede ser nulo
+  title: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -65,7 +67,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const loadChat = async (chatId: string) => {
     if (isLoading) return;
     setIsLoading(true);
-    setActiveThreadId(chatId); // Marcar como activo inmediatamente
+    setActiveThreadId(chatId);
     try {
       const { data, error } = await supabase
         .from('messages')
@@ -75,10 +77,21 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
       if (error) throw error;
       
-      setMessages(data || []);
+      const loadedMessages = (data || []).map(msg => ({
+        ...msg,
+        isStreaming: false,
+        isComplete: true
+      }));
+      setMessages(loadedMessages);
     } catch (error) {
       console.error('Error loading chat:', error);
-      setMessages([{ id: crypto.randomUUID(), role: 'assistant', content: 'Error al cargar este chat.' }]);
+      setMessages([{ 
+        id: crypto.randomUUID(), 
+        role: 'assistant', 
+        content: 'Error al cargar este chat.',
+        isStreaming: false,
+        isComplete: true
+      }]);
     } finally {
       setIsLoading(false);
     }
@@ -98,9 +111,23 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       id: crypto.randomUUID(),
       role: 'user',
       content,
+      isStreaming: false,
+      isComplete: true
     };
-    const currentMessages = [...messages, userMessage];
-    setMessages(currentMessages);
+
+    // Agregar mensaje del usuario inmediatamente
+    setMessages(prev => [...prev, userMessage]);
+    
+    // Agregar indicador de "pensando..."
+    const thinkingId = crypto.randomUUID();
+    const thinkingMessage: Message = {
+      id: thinkingId,
+      role: 'assistant',
+      content: '',
+      isStreaming: true,
+      isComplete: false
+    };
+    setMessages(prev => [...prev, thinkingMessage]);
     
     let currentChatId = activeThreadId;
     let newChatCreated = false;
@@ -119,19 +146,23 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         setActiveThreadId(currentChatId);
       }
 
-      // 2. Guardar mensaje del usuario en la BD
-      await supabase.from('messages').insert({ chat_id: currentChatId, role: 'user', content });
+      // 2. Guardar mensaje del usuario
+      await supabase.from('messages').insert({ 
+        chat_id: currentChatId, 
+        role: 'user', 
+        content 
+      });
 
       if (newChatCreated) {
         await loadUserChats();
       }
 
-      // 3. Obtener token y llamar a la API de backend
+      // 3. Llamar a la API con streaming
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error("No hay sesión de usuario activa.");
       
       const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-      if (!apiUrl) throw new Error("La URL de la API no está configurada en el frontend.");
+      if (!apiUrl) throw new Error("La URL de la API no está configurada.");
 
       const response = await fetch(`${apiUrl}/api/chat`, {
         method: 'POST',
@@ -140,7 +171,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           'Authorization': `Bearer ${session.access_token}`,
         },
         body: JSON.stringify({
-          messages: currentMessages,
+          messages: [...messages, userMessage],
           thread_id: currentChatId,
         }),
       });
@@ -149,15 +180,25 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         const errorBody = await response.json().catch(() => ({ error: `Error HTTP ${response.status}` }));
         throw new Error(errorBody.error || `Error del servidor: ${response.statusText}`);
       }
-      if (!response.body) throw new Error("La respuesta de la API no tiene cuerpo.");
 
       // 4. Procesar respuesta en streaming
-      const reader = response.body.getReader();
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error("La respuesta no tiene cuerpo.");
+
       const decoder = new TextDecoder();
-      let assistantMessageContent = '';
-      const assistantId = crypto.randomUUID();
+      let assistantContent = '';
       
-      setMessages((prev) => [...prev, { id: assistantId, role: 'assistant', content: '' }]);
+      // Remover el mensaje de "pensando..." y agregar el mensaje real
+      setMessages(prev => prev.filter(m => m.id !== thinkingId));
+      
+      const assistantId = crypto.randomUUID();
+      setMessages(prev => [...prev, {
+        id: assistantId,
+        role: 'assistant',
+        content: '',
+        isStreaming: true,
+        isComplete: false
+      }]);
 
       while (true) {
         const { done, value } = await reader.read();
@@ -169,51 +210,69 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         for (const line of lines) {
           if (line.startsWith('data: ')) {
             const data = line.substring(6);
-            if (data.trim() === '[DONE]') continue;
+            if (data.trim() === '[DONE]') {
+              // Marcar como completo
+              setMessages(prev =>
+                prev.map(m =>
+                  m.id === assistantId 
+                    ? { ...m, isStreaming: false, isComplete: true }
+                    : m
+                )
+              );
+              break;
+            }
             try {
               const parsed = JSON.parse(data);
               if (parsed.error) throw new Error(parsed.error);
               if (parsed.content) {
-                assistantMessageContent += parsed.content;
-                setMessages((prev) =>
-                  prev.map((m) =>
-                    m.id === assistantId ? { ...m, content: assistantMessageContent } : m
+                assistantContent += parsed.content;
+                // Actualizar contenido en tiempo real
+                setMessages(prev =>
+                  prev.map(m =>
+                    m.id === assistantId 
+                      ? { ...m, content: assistantContent }
+                      : m
                   )
                 );
               }
             } catch (e) {
-              console.error("Error procesando chunk de stream:", e, "Chunk:", data);
+              console.error("Error procesando chunk:", e);
             }
           }
         }
       }
 
-      // 5. Guardar respuesta final del asistente en la BD
-      if (assistantMessageContent.trim()) {
+      // 5. Guardar respuesta final
+      if (assistantContent.trim()) {
         await supabase.from('messages').insert({
           chat_id: currentChatId,
           role: 'assistant',
-          content: assistantMessageContent,
+          content: assistantContent,
         });
       }
 
-      // 6. Actualizar timestamp del chat para que suba en la lista
+      // 6. Actualizar timestamp del chat
       await supabase
         .from('chats')
         .update({ updated_at: new Date().toISOString() })
         .eq('id', currentChatId);
       
       if (!newChatCreated) {
-        await loadUserChats(); // Recargar para reordenar
+        await loadUserChats();
       }
 
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Error desconocido.";
       console.error('Error enviando mensaje:', error);
-      setMessages((prev) => [...prev, {
+      
+      // Remover mensaje de pensando y mostrar error
+      setMessages(prev => prev.filter(m => m.id !== thinkingId));
+      setMessages(prev => [...prev, {
         id: crypto.randomUUID(),
         role: 'assistant',
-        content: `Lo siento, hubo un error al procesar tu mensaje: ${errorMessage}`,
+        content: `Lo siento, hubo un error: ${errorMessage}`,
+        isStreaming: false,
+        isComplete: true
       }]);
     } finally {
       setIsLoading(false);
@@ -244,7 +303,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         setMessages(prev => [...prev, {
             id: crypto.randomUUID(),
             role: 'assistant',
-            content: result.message || `Archivo "${file.name}" subido. Ya puedes hacer preguntas sobre él.`
+            content: result.message || `Archivo "${file.name}" subido. Ya puedes hacer preguntas sobre él.`,
+            isStreaming: false,
+            isComplete: true
         }]);
 
     } catch (error) {
@@ -252,7 +313,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         setMessages(prev => [...prev, {
             id: crypto.randomUUID(),
             role: 'assistant',
-            content: `Error al subir el archivo: ${error instanceof Error ? error.message : 'Error desconocido'}.`
+            content: `Error al subir el archivo: ${error instanceof Error ? error.message : 'Error desconocido'}.`,
+            isStreaming: false,
+            isComplete: true
         }]);
     } finally {
         setIsLoading(false);
