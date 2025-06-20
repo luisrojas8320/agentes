@@ -212,7 +212,7 @@ def list_chats_handler():
         logging.error(f"Error en list_chats_handler: {traceback.format_exc()}")
         return jsonify({"error": "Error interno del servidor al listar chats"}), 500
 
-@app.route('/api/upload', methods=['POST'])
+@app.route('/api/upload', methods=['POST', 'OPTIONS'])
 def upload_handler():
     user, error_response = get_user_from_token(request)
     if error_response:
@@ -238,7 +238,7 @@ def upload_handler():
         logging.error(f"Error en upload_handler: {traceback.format_exc()}")
         return jsonify({"error": "Error interno del servidor al subir el archivo"}), 500
 
-@app.route('/api/chat', methods=['POST'])
+@app.route('/api/chat', methods=['POST', 'OPTIONS'])
 async def chat_handler():
     app_graph = get_or_create_agent_graph()
     if app_graph is None:
