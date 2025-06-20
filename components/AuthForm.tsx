@@ -39,7 +39,7 @@ export default function AuthForm() {
           password,
         });
         if (error) throw error;
-        router.push('/chat');
+        router.push('/');
         router.refresh();
       }
     } catch (error: any) {
