@@ -1,4 +1,3 @@
-# Ruta: api/index.py
 import os
 import operator
 import logging
@@ -9,12 +8,10 @@ from flask import Flask, request, Response, stream_with_context, jsonify
 from flask_cors import CORS
 from dotenv import load_dotenv
 from supabase.client import create_client, Client
-import psycopg2 # Necesario para langgraph-postgres
+import psycopg2
 
-# --- NUEVO: Importaciones para memoria persistente ---
 from langgraph.checkpoint.aiopg import AsyncPostgresSaver
-
-from langchain_openai import ChatOpenAI
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_community.chat_models import ChatDeepseek
 from langchain_core.messages import (
@@ -25,24 +22,16 @@ from pydantic import BaseModel, Field
 from typing import TypedDict, Annotated, Sequence
 from langgraph.graph import StateGraph, END
 
-# Importaciones de nuestros módulos
 from api.tools import internet_search, analyze_url_content, search_my_documents
 from api.rag_processor import process_and_store_document
 
-# --- Configuración Inicial ---
 load_dotenv()
 app = Flask(__name__)
 
-# ==============================================================================
-# --- INICIO DE LA CORRECCIÓN DE CORS ---
-#
-# Se añade la URL de Vercel a los orígenes permitidos.
-#
 origins = [
     "https://v0-next-js-14-project-nu.vercel.app",
     "http://localhost:3000"
 ]
-
 CORS(
     app,
     resources={r"/api/*": {"origins": origins}},
@@ -50,9 +39,6 @@ CORS(
     methods=["GET", "POST", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization"]
 )
-# --- FIN DE LA CORRECCIÓN DE CORS ---
-# ==============================================================================
-
 
 logging.basicConfig(level=logging.INFO)
 
@@ -63,10 +49,9 @@ memory = AsyncPostgresSaver.from_conn_string(db_url)
 _APP_GRAPH = None
 _IS_INITIALIZING = False
 
-# --- Funciones de Ayuda (sin cambios) ---
 def create_supabase_client(admin=False) -> Client:
-    url = os.environ.get("SUPABASE_URL")
-    key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY") if admin else os.environ.get("SUPABASE_ANON_KEY")
+    url = os.environ.get("NEXT_PUBLIC_SUPABASE_URL")
+    key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY") if admin else os.environ.get("NEXT_PUBLIC_SUPABASE_ANON_KEY")
     if not url or not key: raise ValueError("Variables de Supabase no configuradas.")
     return create_client(url, key)
 
@@ -183,7 +168,6 @@ def get_or_create_agent_graph():
         _IS_INITIALIZING = False
 
 def get_user_from_token(request):
-    """Función de ayuda para obtener el usuario de Supabase a partir del token."""
     jwt = request.headers.get('Authorization', '').replace('Bearer ', '')
     if not jwt:
         return None, (jsonify({"error": "Token de autorización ausente"}), 401)
@@ -197,7 +181,6 @@ def get_user_from_token(request):
     except Exception as e:
         logging.error(f"Error al validar token: {e}")
         return None, (jsonify({"error": "Error interno al validar el token"}), 500)
-
 
 @app.route("/")
 def health_check():
@@ -229,7 +212,6 @@ def list_chats_handler():
         logging.error(f"Error en list_chats_handler: {traceback.format_exc()}")
         return jsonify({"error": "Error interno del servidor al listar chats"}), 500
 
-
 @app.route('/api/upload', methods=['POST'])
 def upload_handler():
     user, error_response = get_user_from_token(request)
@@ -256,15 +238,6 @@ def upload_handler():
         logging.error(f"Error en upload_handler: {traceback.format_exc()}")
         return jsonify({"error": "Error interno del servidor al subir el archivo"}), 500
 
-# ==============================================================================
-# --- INICIO DE LA CORRECCIÓN DEL ENDPOINT DE CHAT ---
-#
-# El endpoint original no manejaba correctamente el payload que enviaba el frontend.
-# Esta versión corregida:
-# 1. Espera un array 'messages' en lugar de una string 'message'.
-# 2. Extrae el contenido del último mensaje para procesarlo.
-# 3. Mantiene la lógica de creación de hilos y uso de memoria persistente.
-#
 @app.route('/api/chat', methods=['POST'])
 async def chat_handler():
     app_graph = get_or_create_agent_graph()
@@ -283,12 +256,9 @@ async def chat_handler():
         if not messages_from_client:
             return Response(json.dumps({"error": "No se proporcionaron mensajes."}), status=400, mimetype='application/json')
 
-        # El mensaje más reciente es el que envía el usuario
         last_user_message = messages_from_client[-1]['content']
 
-        # Se mantiene la lógica de crear un nuevo chat si no hay ID de hilo
         if not thread_id:
-             # Necesitamos un cliente supabase con el token del usuario para respetar RLS
             jwt = request.headers.get('Authorization')
             supabase_client = create_supabase_client()
             supabase_client.auth.set_session(access_token=jwt.replace('Bearer ', ''), refresh_token="dummy")
@@ -307,7 +277,6 @@ async def chat_handler():
         input_message = HumanMessage(content=last_user_message)
         
         current_state = await memory.aget(config)
-        # Si es el primer mensaje del hilo, inyectamos el prompt del sistema
         input_messages = [SystemMessage(content=system_prompt), input_message] if not current_state else [input_message]
 
         async def generate_stream():
@@ -317,7 +286,6 @@ async def chat_handler():
                         agent_messages = chunk['agent'].get('messages', [])
                         if agent_messages:
                             ai_message = agent_messages[-1]
-                            # Solo envía contenido si no es una llamada a herramienta
                             if ai_message.content and not ai_message.tool_calls:
                                 yield f"data: {json.dumps({'content': ai_message.content, 'thread_id': str(thread_id)})}\n\n"
             except Exception as e:
@@ -329,9 +297,6 @@ async def chat_handler():
     except Exception as e:
         logging.error(f"Error en chat_handler: {traceback.format_exc()}")
         return Response(json.dumps({"error": f"Error en el servidor: {str(e)}"}), status=500, mimetype='application/json')
-
-# --- FIN DE LA CORRECCIÓN DEL ENDPOINT DE CHAT ---
-# ==============================================================================
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))

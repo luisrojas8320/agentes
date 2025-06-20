@@ -1,4 +1,3 @@
-// Ruta: contexts/ChatContext.tsx
 'use client';
 
 import { createContext, useContext, useState, useCallback, useEffect, ReactNode } from 'react';
@@ -14,7 +13,7 @@ interface Message {
 
 interface Chat {
   id: string;
-  title: string;
+  title: string | null; // El título puede ser nulo
   created_at: string;
   updated_at: string;
 }
@@ -43,13 +42,11 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
   const loadUserChats = useCallback(async () => {
     if (!user) return;
-
     const { data, error } = await supabase
       .from('chats')
       .select('*')
       .eq('user_id', user.id)
       .order('updated_at', { ascending: false });
-
     if (!error && data) {
       setChats(data);
     }
@@ -58,11 +55,17 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (user) {
       loadUserChats();
+    } else {
+      setChats([]);
+      setMessages([]);
+      setActiveThreadId(null);
     }
   }, [user, loadUserChats]);
 
   const loadChat = async (chatId: string) => {
+    if (isLoading) return;
     setIsLoading(true);
+    setActiveThreadId(chatId); // Marcar como activo inmediatamente
     try {
       const { data, error } = await supabase
         .from('messages')
@@ -70,200 +73,195 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         .eq('chat_id', chatId)
         .order('created_at', { ascending: true });
 
-      if (!error && data) {
-        setMessages(data);
-        setActiveThreadId(chatId);
-      }
+      if (error) throw error;
+      
+      setMessages(data || []);
     } catch (error) {
       console.error('Error loading chat:', error);
+      setMessages([{ id: crypto.randomUUID(), role: 'assistant', content: 'Error al cargar este chat.' }]);
     } finally {
       setIsLoading(false);
     }
   };
 
   const startNewChat = () => {
-    setMessages([]);
     setActiveThreadId(null);
+    setMessages([]);
   };
 
   const sendMessage = async (content: string) => {
-    if (!user) return;
+    if (!user || isLoading || !content.trim()) return;
+
+    setIsLoading(true);
 
     const userMessage: Message = {
       id: crypto.randomUUID(),
       role: 'user',
       content,
-      created_at: new Date().toISOString(),
     };
-
-    const newMessages = [...messages, userMessage];
-    setMessages(newMessages);
-    setIsLoading(true);
+    const currentMessages = [...messages, userMessage];
+    setMessages(currentMessages);
+    
+    let currentChatId = activeThreadId;
+    let newChatCreated = false;
 
     try {
-      let chatId = activeThreadId;
-      if (!chatId) {
+      // 1. Crear chat si es necesario
+      if (!currentChatId) {
+        newChatCreated = true;
         const { data: newChat, error: chatError } = await supabase
           .from('chats')
-          .insert({
-            user_id: user.id,
-            title: content.slice(0, 50),
-          })
+          .insert({ user_id: user.id, title: content.slice(0, 50) })
           .select()
           .single();
-
         if (chatError) throw chatError;
-        chatId = newChat.id;
-        setActiveThreadId(chatId);
-        loadUserChats();
+        currentChatId = newChat.id;
+        setActiveThreadId(currentChatId);
       }
 
-      await supabase.from('messages').insert({
-        chat_id: chatId,
-        role: 'user',
-        content,
-      });
+      // 2. Guardar mensaje del usuario en la BD
+      await supabase.from('messages').insert({ chat_id: currentChatId, role: 'user', content });
 
+      if (newChatCreated) {
+        await loadUserChats();
+      }
+
+      // 3. Obtener token y llamar a la API de backend
       const { data: { session } } = await supabase.auth.getSession();
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/chat`, {
+      if (!session) throw new Error("No hay sesión de usuario activa.");
+      
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+      if (!apiUrl) throw new Error("La URL de la API no está configurada en el frontend.");
+
+      const response = await fetch(`${apiUrl}/api/chat`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session?.access_token}`,
+          'Authorization': `Bearer ${session.access_token}`,
         },
         body: JSON.stringify({
-          messages: newMessages,
+          messages: currentMessages,
+          thread_id: currentChatId,
         }),
       });
 
-      if (!response.ok || !response.body) {
-        throw new Error('Error en la respuesta del servidor');
+      if (!response.ok) {
+        const errorBody = await response.json().catch(() => ({ error: `Error HTTP ${response.status}` }));
+        throw new Error(errorBody.error || `Error del servidor: ${response.statusText}`);
       }
+      if (!response.body) throw new Error("La respuesta de la API no tiene cuerpo.");
 
+      // 4. Procesar respuesta en streaming
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let assistantMessageContent = '';
       const assistantId = crypto.randomUUID();
-
-      setMessages((prev) => [...prev, {
-        id: assistantId,
-        role: 'assistant',
-        content: ''
-      }]);
+      
+      setMessages((prev) => [...prev, { id: assistantId, role: 'assistant', content: '' }]);
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
-        const chunk = decoder.decode(value, { stream: true });
-        const lines = chunk.split('\n');
+        const rawChunk = decoder.decode(value, { stream: true });
+        const lines = rawChunk.split('\n');
 
         for (const line of lines) {
           if (line.startsWith('data: ')) {
-            const data = line.slice(6);
-            if (data === '[DONE]') continue;
-
+            const data = line.substring(6);
+            if (data.trim() === '[DONE]') continue;
             try {
               const parsed = JSON.parse(data);
+              if (parsed.error) throw new Error(parsed.error);
               if (parsed.content) {
                 assistantMessageContent += parsed.content;
                 setMessages((prev) =>
                   prev.map((m) =>
-                    m.id === assistantId
-                      ? { ...m, content: assistantMessageContent }
-                      : m
+                    m.id === assistantId ? { ...m, content: assistantMessageContent } : m
                   )
                 );
               }
             } catch (e) {
-              console.error('Error parsing SSE:', e);
+              console.error("Error procesando chunk de stream:", e, "Chunk:", data);
             }
           }
         }
       }
 
-      if (assistantMessageContent) {
+      // 5. Guardar respuesta final del asistente en la BD
+      if (assistantMessageContent.trim()) {
         await supabase.from('messages').insert({
-          chat_id: chatId,
+          chat_id: currentChatId,
           role: 'assistant',
           content: assistantMessageContent,
         });
       }
 
+      // 6. Actualizar timestamp del chat para que suba en la lista
       await supabase
         .from('chats')
         .update({ updated_at: new Date().toISOString() })
-        .eq('id', chatId);
+        .eq('id', currentChatId);
+      
+      if (!newChatCreated) {
+        await loadUserChats(); // Recargar para reordenar
+      }
 
     } catch (error) {
-      console.error('Error sending message:', error);
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: crypto.randomUUID(),
-          role: 'assistant',
-          content: 'Lo siento, hubo un error al procesar tu mensaje.',
-        },
-      ]);
+      const errorMessage = error instanceof Error ? error.message : "Error desconocido.";
+      console.error('Error enviando mensaje:', error);
+      setMessages((prev) => [...prev, {
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        content: `Lo siento, hubo un error al procesar tu mensaje: ${errorMessage}`,
+      }]);
     } finally {
       setIsLoading(false);
     }
   };
-
+  
   const uploadFile = async (file: File) => {
     if (!user) return;
-
     setIsLoading(true);
     const formData = new FormData();
     formData.append('file', file);
-
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/upload`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${session?.access_token}`,
-        },
-        body: formData,
-      });
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) throw new Error("No hay sesión de usuario activa.");
 
-      if (!response.ok) {
-        const errorBody = await response.text();
-        throw new Error(`Error al subir el archivo: ${errorBody}`);
-      }
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+        if (!apiUrl) throw new Error("La URL de la API no está configurada.");
 
-      const result = await response.json();
-      console.log('Archivo subido:', result);
-       setMessages(prev => [...prev, {
-         id: crypto.randomUUID(),
-         role: 'assistant',
-         content: `Archivo "${file.name}" subido con éxito. Ya puedes hacer preguntas sobre él.`
-       }])
+        const response = await fetch(`${apiUrl}/api/upload`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${session.access_token}` },
+            body: formData,
+        });
+
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || `Error HTTP ${response.status}`);
+        
+        setMessages(prev => [...prev, {
+            id: crypto.randomUUID(),
+            role: 'assistant',
+            content: result.message || `Archivo "${file.name}" subido. Ya puedes hacer preguntas sobre él.`
+        }]);
 
     } catch (error) {
-      console.error('Error uploading file:', error);
-       setMessages(prev => [...prev, {
-         id: crypto.randomUUID(),
-         role: 'assistant',
-         content: `Error al subir el archivo: ${error instanceof Error ? error.message : 'Error desconocido'}.`
-       }])
+        console.error('Error subiendo archivo:', error);
+        setMessages(prev => [...prev, {
+            id: crypto.randomUUID(),
+            role: 'assistant',
+            content: `Error al subir el archivo: ${error instanceof Error ? error.message : 'Error desconocido'}.`
+        }]);
     } finally {
-      setIsLoading(false);
+        setIsLoading(false);
     }
   };
 
   return (
     <ChatContext.Provider
-      value={{
-        messages,
-        chats,
-        activeThreadId,
-        isLoading,
-        sendMessage,
-        startNewChat,
-        loadChat,
-        uploadFile,
-      }}
+      value={{ messages, chats, activeThreadId, isLoading, sendMessage, startNewChat, loadChat, uploadFile }}
     >
       {children}
     </ChatContext.Provider>
@@ -273,7 +271,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 export const useChat = () => {
   const context = useContext(ChatContext);
   if (!context) {
-    throw new Error('useChat must be used within a ChatProvider');
+    throw new Error('useChat debe ser usado dentro de un ChatProvider');
   }
   return context;
 };
