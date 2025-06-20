@@ -28,6 +28,7 @@ from api.rag_processor import process_and_store_document
 load_dotenv()
 app = Flask(__name__)
 
+# CORREGIDO: Añadir el nuevo dominio de Vercel
 origins = [
     "https://v0-next-js-14-project-nu.vercel.app",
     "http://localhost:3000"
@@ -39,6 +40,17 @@ CORS(
     methods=["GET", "POST", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization"]
 )
+
+# CORREGIDO: Añadir OPTIONS handler explícito para todas las rutas
+@app.before_request
+def handle_preflight():
+    if request.method == "OPTIONS":
+        response = Response()
+        response.headers['Access-Control-Allow-Origin'] = request.headers.get('Origin', '*')
+        response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+        response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
+        response.headers['Access-Control-Allow-Credentials'] = 'true'
+        return response
 
 logging.basicConfig(level=logging.INFO)
 
@@ -184,17 +196,15 @@ def get_user_from_token(request):
 
 @app.route("/")
 def health_check():
-    if _APP_GRAPH is None and not _IS_INITIALIZING:
-        get_or_create_agent_graph()
-    if _APP_GRAPH:
-        return jsonify({"status": "ok", "message": "AI Playground Agent Backend está inicializado."})
-    elif _IS_INITIALIZING:
-        return jsonify({"status": "initializing", "message": "La inicialización del agente está en curso."}), 503
-    else:
-        return jsonify({"status": "error", "message": "La inicialización del agente falló."}), 500
+    response = jsonify({"status": "ok", "message": "AI Playground Agent Backend está inicializado."})
+    response.headers['Access-Control-Allow-Origin'] = '*'
+    return response
 
-@app.route('/api/chats', methods=['GET'])
+@app.route('/api/chats', methods=['GET', 'OPTIONS'])
 def list_chats_handler():
+    if request.method == 'OPTIONS':
+        return Response()
+        
     user, error_response = get_user_from_token(request)
     if error_response:
         return error_response
@@ -214,6 +224,9 @@ def list_chats_handler():
 
 @app.route('/api/upload', methods=['POST', 'OPTIONS'])
 def upload_handler():
+    if request.method == 'OPTIONS':
+        return Response()
+        
     user, error_response = get_user_from_token(request)
     if error_response:
         return error_response
@@ -240,9 +253,14 @@ def upload_handler():
 
 @app.route('/api/chat', methods=['POST', 'OPTIONS'])
 async def chat_handler():
+    if request.method == 'OPTIONS':
+        return Response()
+        
     app_graph = get_or_create_agent_graph()
     if app_graph is None:
-        return Response(json.dumps({"error": "Agente no disponible."}), status=503, mimetype='application/json')
+        response = Response(json.dumps({"error": "Agente no disponible."}), status=503, mimetype='application/json')
+        response.headers['Access-Control-Allow-Origin'] = request.headers.get('Origin', '*')
+        return response
     
     user, error_response = get_user_from_token(request)
     if error_response:
@@ -254,7 +272,9 @@ async def chat_handler():
         thread_id = data.get('thread_id')
         
         if not messages_from_client:
-            return Response(json.dumps({"error": "No se proporcionaron mensajes."}), status=400, mimetype='application/json')
+            response = Response(json.dumps({"error": "No se proporcionaron mensajes."}), status=400, mimetype='application/json')
+            response.headers['Access-Control-Allow-Origin'] = request.headers.get('Origin', '*')
+            return response
 
         last_user_message = messages_from_client[-1]['content']
 
@@ -264,10 +284,12 @@ async def chat_handler():
             supabase_client.auth.set_session(access_token=jwt.replace('Bearer ', ''), refresh_token="dummy")
 
             title = (last_user_message[:50] + '...') if len(last_user_message) > 50 else last_user_message
-            response = supabase_client.from_('chats').insert({'user_id': user.id, 'title': title}).execute()
-            if not response.data:
-                return Response(json.dumps({"error": "No se pudo crear el chat en la base de datos."}), status=500, mimetype='application/json')
-            thread_id = response.data[0]['id']
+            response_db = supabase_client.from_('chats').insert({'user_id': user.id, 'title': title}).execute()
+            if not response_db.data:
+                response = Response(json.dumps({"error": "No se pudo crear el chat en la base de datos."}), status=500, mimetype='application/json')
+                response.headers['Access-Control-Allow-Origin'] = request.headers.get('Origin', '*')
+                return response
+            thread_id = response_db.data[0]['id']
 
         config = {"configurable": {"thread_id": str(thread_id)}}
         
@@ -293,10 +315,16 @@ async def chat_handler():
                 yield f"data: {json.dumps({'error': f'Error en el backend: {str(e)}'})}\n\n"
             yield f"data: [DONE]\n\n"
             
-        return Response(stream_with_context(generate_stream()), mimetype='text/event-stream')
+        response = Response(stream_with_context(generate_stream()), mimetype='text/event-stream')
+        response.headers['Access-Control-Allow-Origin'] = request.headers.get('Origin', '*')
+        response.headers['Access-Control-Allow-Credentials'] = 'true'
+        return response
+        
     except Exception as e:
         logging.error(f"Error en chat_handler: {traceback.format_exc()}")
-        return Response(json.dumps({"error": f"Error en el servidor: {str(e)}"}), status=500, mimetype='application/json')
+        response = Response(json.dumps({"error": f"Error en el servidor: {str(e)}"}), status=500, mimetype='application/json')
+        response.headers['Access-Control-Allow-Origin'] = request.headers.get('Origin', '*')
+        return response
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
