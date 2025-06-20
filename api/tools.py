@@ -2,7 +2,6 @@ import os
 import requests
 import logging
 from supabase.client import Client
-# --- CORRECCIÓN: Añadir la importación que falta ---
 from langchain_openai import OpenAIEmbeddings
 
 def internet_search(query: str) -> str:
@@ -72,19 +71,41 @@ def search_my_documents(query: str, supabase_user_client: Client) -> str:
     """
     logging.info(f"Buscando en documentos personales para: '{query}'")
     try:
-        # Llama a la función RPC 'match_documents' en Supabase
+        # CORREGIDO: Crear embeddings para la consulta
+        embeddings_model = OpenAIEmbeddings(model="text-embedding-3-small")
+        query_embedding = embeddings_model.embed_query(query)
+        
+        logging.info(f"Query embedding generado exitosamente, dimensiones: {len(query_embedding)}")
+        
+        # CORREGIDO: Llamar a la función RPC con parámetros correctos
         response = supabase_user_client.rpc('match_documents', {
-            'query_embedding': OpenAIEmbeddings(model="text-embedding-3-small").embed_query(query),
-            'match_threshold': 0.75,
-            'match_count': 5
+            'query_embedding': query_embedding,
+            'match_threshold': 0.5,  # CORREGIDO: Umbral más bajo para mayor flexibilidad
+            'match_count': 10        # CORREGIDO: Más resultados para mejor cobertura
         }).execute()
 
-        if response.data:
-            documents = "\n---\n".join([doc['content'] for doc in response.data])
-            return f"Se encontró la siguiente información en tus documentos:\n\n{documents}"
+        logging.info(f"Respuesta de Supabase RPC: {response}")
+        
+        if response.data and len(response.data) > 0:
+            # CORREGIDO: Ordenar por similaridad y tomar los mejores resultados
+            sorted_docs = sorted(response.data, key=lambda x: x.get('similarity', 0), reverse=True)
+            
+            documents = []
+            for i, doc in enumerate(sorted_docs[:5]):  # Tomar los 5 mejores
+                similarity = doc.get('similarity', 0)
+                content = doc.get('content', '')
+                logging.info(f"Documento {i+1} - Similaridad: {similarity:.3f}")
+                documents.append(f"[Relevancia: {similarity:.2f}] {content}")
+            
+            combined_content = "\n---\n".join(documents)
+            
+            result = f"Se encontró la siguiente información en tus documentos personales:\n\n{combined_content}"
+            logging.info(f"Retornando {len(documents)} documentos encontrados")
+            return result
         else:
-            return "No se encontró información relevante en tus documentos personales para esta consulta."
+            logging.warning("No se encontraron documentos relevantes")
+            return f"No se encontró información específica sobre '{query}' en tus documentos personales. Puedes subir más documentos o reformular tu pregunta con otros términos relacionados."
 
     except Exception as e:
         logging.error(f"Error al buscar en documentos personales: {e}", exc_info=True)
-        return "Ocurrió un error al intentar buscar en tus documentos."
+        return f"Ocurrió un error al intentar buscar en tus documentos: {str(e)}"
