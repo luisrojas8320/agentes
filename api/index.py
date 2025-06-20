@@ -1,14 +1,19 @@
-#api/index
+# api/index.py - Backend actualizado con soporte MCP
 import os
 import operator
 import logging
 import traceback
 import json
+import asyncio
 from datetime import datetime, timezone
 from flask import Flask, request, Response, stream_with_context, jsonify
 from flask_cors import CORS
 from dotenv import load_dotenv
 from supabase.client import create_client, Client
+
+# Importaciones MCP y herramientas mejoradas
+from api.mcp_client import initialize_mcp_clients, get_mcp_tools_for_langchain, cleanup_mcp_clients
+from api.tools import tool_registry
 
 # CORREGIDO: Importaciones simplificadas y seguras
 try:
@@ -21,7 +26,6 @@ except ImportError:
 
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_google_genai import ChatGoogleGenerativeAI
-# CORREGIDO: Remover ChatDeepseek que no existe
 from langchain_core.messages import (
     HumanMessage, SystemMessage, BaseMessage, ToolMessage, AIMessage
 )
@@ -30,7 +34,6 @@ from pydantic import BaseModel, Field
 from typing import TypedDict, Annotated, Sequence
 from langgraph.graph import StateGraph, END
 
-from api.tools import internet_search, analyze_url_content, search_my_documents
 from api.rag_processor import process_and_store_document
 
 load_dotenv()
@@ -58,6 +61,12 @@ def handle_preflight():
 
 logging.basicConfig(level=logging.INFO)
 
+# Variables globales para MCP y sistema
+memory = None
+_APP_GRAPH = None
+_IS_INITIALIZING = False
+_MCP_INITIALIZED = False
+
 # CORREGIDO: Configurar checkpointer simplificado
 def setup_memory():
     if CHECKPOINTER_AVAILABLE:
@@ -68,13 +77,8 @@ def setup_memory():
         except Exception as e:
             logging.error(f"Error configurando MemorySaver: {e}")
     
-    # Fallback: sin memoria persistente
     logging.warning("Sin memoria persistente - conversaciones no se guardarán entre reinicializaciones")
     return None
-
-memory = setup_memory()
-_APP_GRAPH = None
-_IS_INITIALIZING = False
 
 def create_supabase_client(admin=False) -> Client:
     url = os.environ.get("SUPABASE_URL")
@@ -97,7 +101,6 @@ def get_chat_model(provider: str, model_name: str, temperature: float = 0.0):
         return ChatOpenAI(model=model_name, temperature=temperature, api_key=api_key, streaming=True)
     elif provider == "google":
         return ChatGoogleGenerativeAI(model=model_name, temperature=temperature, api_key=api_key, convert_system_message_to_human=True, streaming=True)
-    # CORREGIDO: Remover soporte para Deepseek por ahora
     else:
         logging.warning(f"Proveedor '{provider}' no soportado. Usando OpenAI gpt-4o-mini como fallback.")
         return ChatOpenAI(model="gpt-4o-mini", temperature=temperature, api_key=os.environ.get("OPENAI_API_KEY"), streaming=True)
@@ -111,23 +114,46 @@ def summarize_if_needed(original_query: str, tool_output: str) -> str:
         return summarizer_model.invoke([HumanMessage(content=prompt)]).content
     return tool_output
 
-def get_all_available_tools(supabase_user_client: Client) -> list:
+async def get_all_available_tools(supabase_user_client: Client) -> list:
+    """Obtiene todas las herramientas disponibles incluyendo MCP"""
+    global _MCP_INITIALIZED
     all_tools = []
-    search_tool = StructuredTool.from_function(func=internet_search, name="internet_search", description="Busca en internet para obtener información actualizada.")
-    url_analyzer_tool = StructuredTool.from_function(func=analyze_url_content, name="analyze_url_content", description="Extrae texto de una imagen o PDF desde una URL.")
+    
+    # Herramientas básicas del sistema
+    search_tool = StructuredTool.from_function(
+        func=lambda q: tool_registry.execute_tool("internet_search", query=q),
+        name="internet_search", 
+        description="Busca en internet para obtener información actualizada."
+    )
+    
+    url_analyzer_tool = StructuredTool.from_function(
+        func=lambda url: tool_registry.execute_tool("analyze_url_content", url=url),
+        name="analyze_url_content", 
+        description="Extrae texto de una imagen o PDF desde una URL."
+    )
     
     rag_tool = StructuredTool.from_function(
-        func=lambda q: search_my_documents(q, supabase_user_client),
+        func=lambda q: tool_registry.execute_tool("search_my_documents", query=q, supabase_user_client=supabase_user_client),
         name="search_my_documents",
-        description="Busca en los documentos personales del usuario para encontrar información relevante. Úsalo si el usuario pregunta sobre 'mi documento', 'el archivo que subí', o temas muy específicos que no son de conocimiento general."
+        description="Busca en los documentos personales del usuario para encontrar información relevante."
     )
+    
     all_tools.extend([search_tool, url_analyzer_tool, rag_tool])
     
+    # Herramientas MCP
+    if _MCP_INITIALIZED:
+        try:
+            mcp_tools = await get_mcp_tools_for_langchain()
+            all_tools.extend(mcp_tools)
+            logging.info(f"Añadidas {len(mcp_tools)} herramientas MCP")
+        except Exception as e:
+            logging.error(f"Error obteniendo herramientas MCP: {e}")
+    
+    # Agentes especializados de Supabase
     try:
         response = supabase_user_client.from_("agents").select("name, description, model_provider, model_name, system_prompt").neq("name", "Asistente Orquestador").execute()
         if response.data:
             for agent_config in response.data:
-                # CORREGIDO: Solo procesar agentes con proveedores soportados
                 if agent_config['model_provider'].lower() not in ['openai', 'google']:
                     logging.warning(f"Saltando agente {agent_config['name']} con proveedor no soportado: {agent_config['model_provider']}")
                     continue
@@ -141,12 +167,17 @@ def get_all_available_tools(supabase_user_client: Client) -> list:
                     return model.invoke(messages).content
                 
                 tool_name = agent_config['name'].lower().replace(' ', '_').replace('-', '_')
-                specialist_tool = StructuredTool.from_function(func=run_specialist_agent, name=tool_name, description=f"Agente especializado: {agent_config['description']}", args_schema=ToolSchema)
+                specialist_tool = StructuredTool.from_function(
+                    func=run_specialist_agent, 
+                    name=tool_name, 
+                    description=f"Agente especializado: {agent_config['description']}", 
+                    args_schema=ToolSchema
+                )
                 all_tools.append(specialist_tool)
     except Exception as e:
         logging.error(f"Error al obtener agentes de Supabase: {e}")
     
-    logging.info(f"Cargadas {len(all_tools)} herramientas.")
+    logging.info(f"Cargadas {len(all_tools)} herramientas totales")
     return all_tools
 
 def get_or_create_agent_graph():
@@ -161,7 +192,13 @@ def get_or_create_agent_graph():
     
     try:
         supabase_client = create_supabase_client(admin=False)
-        all_tools = get_all_available_tools(supabase_client)
+        
+        # Obtener herramientas en un bucle de eventos asyncio
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        all_tools = loop.run_until_complete(get_all_available_tools(supabase_client))
+        loop.close()
+        
         orchestrator_llm = get_chat_model("openai", "gpt-4o")
         llm_with_tools = orchestrator_llm.bind_tools(all_tools)
 
@@ -200,6 +237,8 @@ def get_or_create_agent_graph():
         workflow.add_edge("action", "agent")
         
         # CORREGIDO: Compilar con o sin checkpointer
+        global memory
+        memory = setup_memory()
         if memory:
             _APP_GRAPH = workflow.compile(checkpointer=memory)
             logging.info("Grafo del agente compilado con memoria persistente.")
@@ -233,20 +272,37 @@ def get_user_from_token(request):
 
 @app.route("/")
 def health_check():
+    global _MCP_INITIALIZED
+    
     if _APP_GRAPH is None and not _IS_INITIALIZING:
         get_or_create_agent_graph()
     
+    # Inicializar MCP si no está inicializado
+    if not _MCP_INITIALIZED:
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            _MCP_INITIALIZED = loop.run_until_complete(initialize_mcp_clients())
+            loop.close()
+        except Exception as e:
+            logging.error(f"Error inicializando MCP: {e}")
+            _MCP_INITIALIZED = False
+    
+    status_info = {
+        "status": "ok" if _APP_GRAPH else "error",
+        "message": "AI Playground Agent Backend está inicializado." if _APP_GRAPH else "La inicialización del agente falló.",
+        "memory": "Disponible" if memory else "No disponible",
+        "mcp": "Inicializado" if _MCP_INITIALIZED else "No disponible"
+    }
+    
     if _APP_GRAPH:
-        return jsonify({
-            "status": "ok", 
-            "message": "AI Playground Agent Backend está inicializado.",
-            "memory": "Disponible" if memory else "No disponible"
-        })
+        return jsonify(status_info)
     elif _IS_INITIALIZING:
-        return jsonify({"status": "initializing", "message": "La inicialización del agente está en curso."}), 503
+        return jsonify({**status_info, "status": "initializing", "message": "La inicialización del agente está en curso."}), 503
     else:
-        return jsonify({"status": "error", "message": "La inicialización del agente falló."}), 500
+        return jsonify(status_info), 500
 
+# [El resto de las rutas permanecen igual...]
 @app.route('/api/chats', methods=['GET', 'OPTIONS'])
 def list_chats_handler():
     if request.method == 'OPTIONS':
@@ -336,7 +392,26 @@ def chat_handler():
         config = {"configurable": {"thread_id": str(thread_id)}} if memory else {}
         
         current_date = datetime.now(timezone.utc).strftime('%d de %B de %Y')
-        system_prompt = f"Hoy es {current_date}. Eres un orquestador experto. Tu principal objetivo es determinar la intención del usuario y seleccionar la herramienta más adecuada de tu lista. Si la petición es un saludo o una pregunta general sin tarea clara, responde directamente. Cuando una herramienta te devuelva información, sintetízala en una respuesta clara y concisa para el usuario, basándote siempre en la fecha actual."
+        system_prompt = f"""Hoy es {current_date}. Eres un orquestador experto con acceso a herramientas locales y MCP. 
+
+Tu principal objetivo es determinar la intención del usuario y seleccionar la herramienta más adecuada:
+
+HERRAMIENTAS DISPONIBLES:
+- internet_search: Para búsquedas en internet
+- analyze_url_content: Para analizar contenido de URLs
+- search_my_documents: Para buscar en documentos del usuario
+- Herramientas MCP: Herramientas externas conectadas via MCP
+- Agentes especializados: Para tareas específicas
+
+INSTRUCCIONES:
+1. Si es un saludo o pregunta general, responde directamente
+2. Para información actualizada, usa internet_search
+3. Para analizar URLs o imágenes, usa analyze_url_content
+4. Para documentos del usuario, usa search_my_documents
+5. Para tareas específicas, considera los agentes especializados
+6. Cuando uses herramientas MCP, explica brevemente qué estás haciendo
+
+Siempre sintetiza la información en una respuesta clara y concisa."""
         
         input_message = HumanMessage(content=last_user_message)
         input_messages = [SystemMessage(content=system_prompt), input_message]
@@ -362,6 +437,91 @@ def chat_handler():
     except Exception as e:
         logging.error(f"Error en chat_handler: {traceback.format_exc()}")
         return Response(json.dumps({"error": f"Error en el servidor: {str(e)}"}), status=500, mimetype='application/json')
+
+# Nueva ruta para gestión MCP
+@app.route('/api/mcp/status', methods=['GET'])
+def mcp_status():
+    """Obtiene el estado de las conexiones MCP"""
+    user, error_response = get_user_from_token(request)
+    if error_response:
+        return error_response
+    
+    global _MCP_INITIALIZED
+    from api.mcp_client import mcp_manager
+    
+    try:
+        status = {
+            "initialized": _MCP_INITIALIZED,
+            "connected_servers": list(mcp_manager.connected_servers.keys()),
+            "server_count": len(mcp_manager.connected_servers)
+        }
+        
+        if _MCP_INITIALIZED:
+            # Obtener herramientas disponibles
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            tools = loop.run_until_complete(mcp_manager.get_available_tools())
+            resources = loop.run_until_complete(mcp_manager.get_resources())
+            loop.close()
+            
+            status.update({
+                "available_tools": len(tools),
+                "available_resources": len(resources),
+                "tools": [{"name": t["name"], "server": t["server"], "description": t["description"]} for t in tools[:10]],  # Primeras 10
+                "resources": [{"uri": r["uri"], "server": r["server"]} for r in resources[:10]]  # Primeros 10
+            })
+        
+        return jsonify(status)
+        
+    except Exception as e:
+        logging.error(f"Error obteniendo estado MCP: {e}")
+        return jsonify({"error": "Error obteniendo estado MCP"}), 500
+
+@app.route('/api/mcp/tools', methods=['GET'])
+def list_mcp_tools():
+    """Lista todas las herramientas MCP disponibles"""
+    user, error_response = get_user_from_token(request)
+    if error_response:
+        return error_response
+    
+    global _MCP_INITIALIZED
+    if not _MCP_INITIALIZED:
+        return jsonify({"error": "MCP no inicializado"}), 503
+    
+    try:
+        from api.mcp_client import mcp_manager
+        
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        tools = loop.run_until_complete(mcp_manager.get_available_tools())
+        loop.close()
+        
+        return jsonify({
+            "tools": tools,
+            "count": len(tools)
+        })
+        
+    except Exception as e:
+        logging.error(f"Error listando herramientas MCP: {e}")
+        return jsonify({"error": "Error obteniendo herramientas MCP"}), 500
+
+# Función de limpieza al cerrar la aplicación
+import atexit
+
+def cleanup_on_exit():
+    """Limpia recursos al cerrar la aplicación"""
+    global _MCP_INITIALIZED
+    if _MCP_INITIALIZED:
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(cleanup_mcp_clients())
+            loop.close()
+            logging.info("✓ Recursos MCP limpiados")
+        except Exception as e:
+            logging.error(f"Error limpiando recursos MCP: {e}")
+
+atexit.register(cleanup_on_exit)
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
