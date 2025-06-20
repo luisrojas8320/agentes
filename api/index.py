@@ -36,9 +36,7 @@ app = Flask(__name__)
 # ==============================================================================
 # --- INICIO DE LA CORRECCIÓN DE CORS ---
 #
-# El problema original era que solo se permitía localhost.
-# Ahora añadimos explícitamente la URL de tu frontend en Vercel a la lista
-# de orígenes permitidos.
+# Se añade la URL de Vercel a los orígenes permitidos.
 #
 origins = [
     "https://v0-next-js-14-project-nu.vercel.app",
@@ -47,7 +45,6 @@ origins = [
 
 CORS(
     app,
-    # Aplicamos la configuración a todas las rutas que empiecen con /api/
     resources={r"/api/*": {"origins": origins}},
     supports_credentials=True,
     methods=["GET", "POST", "OPTIONS"],
@@ -59,14 +56,12 @@ CORS(
 
 logging.basicConfig(level=logging.INFO)
 
-# --- NUEVO: Configuración de la memoria (checkpointer) ---
 db_url = os.environ.get("POSTGRES_URL")
 if not db_url:
     raise ValueError("POSTGRES_URL no está configurada para la persistencia del grafo.")
 memory = AsyncPostgresSaver.from_conn_string(db_url)
 _APP_GRAPH = None
 _IS_INITIALIZING = False
-
 
 # --- Funciones de Ayuda (sin cambios) ---
 def create_supabase_client(admin=False) -> Client:
@@ -177,7 +172,6 @@ def get_or_create_agent_graph():
         workflow.add_conditional_edges("agent", lambda state: "action" if state['messages'][-1].tool_calls else END)
         workflow.add_edge("action", "agent")
         
-        # --- MODIFICADO: Compilar el grafo con el checkpointer de memoria ---
         _APP_GRAPH = workflow.compile(checkpointer=memory)
         logging.info("Grafo del agente compilado con memoria persistente y listo para usar.")
         return _APP_GRAPH
@@ -216,7 +210,6 @@ def health_check():
     else:
         return jsonify({"status": "error", "message": "La inicialización del agente falló."}), 500
 
-# --- NUEVO: Endpoint para listar los chats del usuario ---
 @app.route('/api/chats', methods=['GET'])
 def list_chats_handler():
     user, error_response = get_user_from_token(request)
@@ -225,7 +218,6 @@ def list_chats_handler():
     
     try:
         supabase_client = create_supabase_client()
-        # Se asume que el cliente se inicializa con el token del usuario para que RLS funcione
         response = supabase_client.from_('chats').select('id, title, created_at').eq('user_id', user.id).order('created_at', desc=True).execute()
         
         if response.data is not None:
@@ -264,7 +256,15 @@ def upload_handler():
         logging.error(f"Error en upload_handler: {traceback.format_exc()}")
         return jsonify({"error": "Error interno del servidor al subir el archivo"}), 500
 
-# --- MODIFICADO: Endpoint de chat para usar memoria persistente ---
+# ==============================================================================
+# --- INICIO DE LA CORRECCIÓN DEL ENDPOINT DE CHAT ---
+#
+# El endpoint original no manejaba correctamente el payload que enviaba el frontend.
+# Esta versión corregida:
+# 1. Espera un array 'messages' en lugar de una string 'message'.
+# 2. Extrae el contenido del último mensaje para procesarlo.
+# 3. Mantiene la lógica de creación de hilos y uso de memoria persistente.
+#
 @app.route('/api/chat', methods=['POST'])
 async def chat_handler():
     app_graph = get_or_create_agent_graph()
@@ -277,53 +277,47 @@ async def chat_handler():
     
     try:
         data = request.get_json()
-        message_content = data.get('message', '')
-        thread_id = data.get('thread_id') # Puede ser None
+        messages_from_client = data.get('messages', [])
+        thread_id = data.get('thread_id')
         
-        # El cliente Supabase necesita el token para que RLS funcione en la creación del chat
-        jwt = request.headers.get('Authorization')
-        supabase_client = create_supabase_client()
-        supabase_client.auth.set_session(access_token=jwt.replace('Bearer ', ''), refresh_token="dummy")
+        if not messages_from_client:
+            return Response(json.dumps({"error": "No se proporcionaron mensajes."}), status=400, mimetype='application/json')
 
+        # El mensaje más reciente es el que envía el usuario
+        last_user_message = messages_from_client[-1]['content']
 
-        # Si no hay thread_id, creamos una nueva conversación
+        # Se mantiene la lógica de crear un nuevo chat si no hay ID de hilo
         if not thread_id:
-            first_message_content = message_content.split('\n')[0]
-            title = (first_message_content[:50] + '...') if len(first_message_content) > 50 else first_message_content
-            
-            response = supabase_client.from_('chats').insert({
-                'user_id': user.id,
-                'title': title
-            }).execute()
-            
-            if not response.data:
-                return Response(json.dumps({"error": "No se pudo crear el chat."}), status=500, mimetype='application/json')
-            
-            thread_id = response.data[0]['id']
-            
-        # Configuración para la ejecución del grafo con estado
-        config = {"configurable": {"thread_id": str(thread_id)}}
+             # Necesitamos un cliente supabase con el token del usuario para respetar RLS
+            jwt = request.headers.get('Authorization')
+            supabase_client = create_supabase_client()
+            supabase_client.auth.set_session(access_token=jwt.replace('Bearer ', ''), refresh_token="dummy")
 
+            title = (last_user_message[:50] + '...') if len(last_user_message) > 50 else last_user_message
+            response = supabase_client.from_('chats').insert({'user_id': user.id, 'title': title}).execute()
+            if not response.data:
+                return Response(json.dumps({"error": "No se pudo crear el chat en la base de datos."}), status=500, mimetype='application/json')
+            thread_id = response.data[0]['id']
+
+        config = {"configurable": {"thread_id": str(thread_id)}}
+        
         current_date = datetime.now(timezone.utc).strftime('%d de %B de %Y')
         system_prompt = f"Hoy es {current_date}. Eres un orquestador experto. Tu principal objetivo es determinar la intención del usuario y seleccionar la herramienta más adecuada de tu lista. Si la petición es un saludo o una pregunta general sin tarea clara, responde directamente. Cuando una herramienta te devuelva información, sintetízala en una respuesta clara y concisa para el usuario, basándote siempre en la fecha actual."
         
-        input_message = HumanMessage(content=message_content)
+        input_message = HumanMessage(content=last_user_message)
         
-        # El checkpointer ya maneja el historial, pero inyectamos el system prompt si es la primera vez.
         current_state = await memory.aget(config)
-        if not current_state:
-            input_messages = [SystemMessage(content=system_prompt), input_message]
-        else:
-            input_messages = [input_message]
+        # Si es el primer mensaje del hilo, inyectamos el prompt del sistema
+        input_messages = [SystemMessage(content=system_prompt), input_message] if not current_state else [input_message]
 
         async def generate_stream():
             try:
-                # El 'stream' ahora recibe la configuración del hilo
                 async for chunk in app_graph.astream({"messages": input_messages}, config=config, recursion_limit=25):
                     if 'agent' in chunk:
                         agent_messages = chunk['agent'].get('messages', [])
                         if agent_messages:
                             ai_message = agent_messages[-1]
+                            # Solo envía contenido si no es una llamada a herramienta
                             if ai_message.content and not ai_message.tool_calls:
                                 yield f"data: {json.dumps({'content': ai_message.content, 'thread_id': str(thread_id)})}\n\n"
             except Exception as e:
@@ -336,6 +330,8 @@ async def chat_handler():
         logging.error(f"Error en chat_handler: {traceback.format_exc()}")
         return Response(json.dumps({"error": f"Error en el servidor: {str(e)}"}), status=500, mimetype='application/json')
 
+# --- FIN DE LA CORRECCIÓN DEL ENDPOINT DE CHAT ---
+# ==============================================================================
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
