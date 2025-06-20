@@ -40,24 +40,18 @@ from api.rag_processor import process_and_store_document
 load_dotenv()
 app = Flask(__name__)
 
-# Configuración CORS
-origins = [
-    "https://v0-next-js-14-project-nu.vercel.app",
-    "http://localhost:3000",
-    "*"
-]
-CORS(
-    app,
-    resources={r"/*": {"origins": "*"}},
-    supports_credentials=True,
-    methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["Content-Type", "Authorization", "Origin", "Accept"]
-)
+# CORREGIDO: Configuración CORS simplificada y efectiva
+CORS(app, 
+     origins=["*"],  # Permitir todos los orígenes por ahora
+     methods=["GET", "POST", "OPTIONS"],
+     allow_headers=["Content-Type", "Authorization", "Origin", "Accept"],
+     supports_credentials=True)
 
+# CORREGIDO: Manejadores de solicitudes simplificados
 @app.after_request
 def after_request(response):
-    origin = request.headers.get('Origin')
-    response.headers['Access-Control-Allow-Origin'] = origin or '*'
+    # Asegurar headers CORS en todas las respuestas
+    response.headers['Access-Control-Allow-Origin'] = '*'
     response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
     response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, Origin, Accept'
     response.headers['Access-Control-Allow-Credentials'] = 'true'
@@ -66,9 +60,9 @@ def after_request(response):
 @app.before_request
 def handle_preflight():
     if request.method == "OPTIONS":
+        # Respuesta para solicitudes preflight
         response = Response()
-        origin = request.headers.get('Origin')
-        response.headers['Access-Control-Allow-Origin'] = origin or '*'
+        response.headers['Access-Control-Allow-Origin'] = '*'
         response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
         response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, Origin, Accept'
         response.headers['Access-Control-Allow-Credentials'] = 'true'
@@ -265,7 +259,11 @@ def health_check():
 @app.route('/api/chats', methods=['GET', 'OPTIONS'])
 def list_chats_handler():
     if request.method == 'OPTIONS':
-        return Response()
+        response = Response()
+        response.headers['Access-Control-Allow-Origin'] = '*'
+        response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+        response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, Origin, Accept'
+        return response
         
     user, error_response = get_user_from_token(request)
     if error_response:
@@ -287,7 +285,11 @@ def list_chats_handler():
 @app.route('/api/upload', methods=['POST', 'OPTIONS'])
 def upload_handler():
     if request.method == 'OPTIONS':
-        return Response()
+        response = Response()
+        response.headers['Access-Control-Allow-Origin'] = '*'
+        response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+        response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, Origin, Accept'
+        return response
         
     user, error_response = get_user_from_token(request)
     if error_response:
@@ -317,7 +319,11 @@ def upload_handler():
 @app.route('/api/chat', methods=['POST', 'OPTIONS'])
 def chat_handler():
     if request.method == 'OPTIONS':
-        return Response()
+        response = Response()
+        response.headers['Access-Control-Allow-Origin'] = '*'
+        response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+        response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, Origin, Accept'
+        return response
         
     app_graph = get_or_create_agent_graph()
     if app_graph is None:
