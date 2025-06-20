@@ -164,6 +164,7 @@ class MCPClientManager:
     
     def __init__(self):
         self.clients: Dict[str, BasicMCPClient] = {}
+        self.connected_servers: Dict[str, BasicMCPClient] = {}
         self.server_configs = {}
     
     def add_server(self, name: str, command: List[str], env: Dict[str, str] = None):
@@ -185,6 +186,7 @@ class MCPClientManager:
         success = await client.connect()
         if success:
             self.clients[server_name] = client
+            self.connected_servers[server_name] = client
             logger.info(f"✓ Cliente MCP conectado: {server_name}")
         
         return success
@@ -221,6 +223,25 @@ class MCPClientManager:
         
         return all_tools
     
+    async def get_resources(self) -> List[Dict[str, Any]]:
+        """Obtiene recursos de todos los servidores"""
+        all_resources = []
+        
+        for server_name, client in self.clients.items():
+            try:
+                resources = await client.list_resources()
+                for resource in resources:
+                    resource_info = {
+                        "uri": resource.get("uri", ""),
+                        "server": server_name,
+                        "description": resource.get("description", "")
+                    }
+                    all_resources.append(resource_info)
+            except Exception as e:
+                logger.error(f"Error obteniendo recursos de {server_name}: {e}")
+        
+        return all_resources
+    
     async def call_tool(self, server_name: str, tool_name: str, arguments: Dict[str, Any]) -> str:
         """Llama a una herramienta específica"""
         if server_name not in self.clients:
@@ -234,6 +255,7 @@ class MCPClientManager:
         for server_name, client in self.clients.items():
             await client.disconnect()
         self.clients.clear()
+        self.connected_servers.clear()
 
 class MCPToolWrapper:
     """Wrapper para convertir herramientas MCP en herramientas LangChain"""
@@ -247,52 +269,60 @@ class MCPToolWrapper:
         langchain_tools = []
         
         for tool_info in mcp_tools:
-            # Crear schema dinámico
-            class DynamicToolInput(BaseModel):
-                pass
-            
-            # Añadir campos según el schema
-            schema = tool_info.get("input_schema", {})
-            if isinstance(schema, dict) and "properties" in schema:
-                properties = schema["properties"]
-                required = schema.get("required", [])
+            try:
+                # Crear schema dinámico
+                class DynamicToolInput(BaseModel):
+                    pass
                 
-                for prop_name, prop_schema in properties.items():
-                    field_type = str  # Tipo por defecto
-                    field_description = prop_schema.get("description", "")
-                    field_default = ... if prop_name in required else None
+                # Añadir campos según el schema
+                schema = tool_info.get("input_schema", {})
+                if isinstance(schema, dict) and "properties" in schema:
+                    properties = schema["properties"]
+                    required = schema.get("required", [])
                     
-                    # Mapear tipos
-                    if prop_schema.get("type") == "integer":
-                        field_type = int
-                    elif prop_schema.get("type") == "boolean":
-                        field_type = bool
-                    
-                    # Añadir campo
-                    setattr(DynamicToolInput, prop_name, Field(
-                        default=field_default,
-                        description=field_description
-                    ))
-            
-            # Crear función de ejecución
-            def execute_tool_sync(**kwargs):
-                import asyncio; return asyncio.run(self.mcp_manager.call_tool(
-                    tool_info["server"],
-                    tool_info["original_name"],
-                    kwargs
+                    for prop_name, prop_schema in properties.items():
+                        field_type = str  # Tipo por defecto
+                        field_description = prop_schema.get("description", "")
+                        field_default = ... if prop_name in required else None
+                        
+                        # Mapear tipos
+                        if prop_schema.get("type") == "integer":
+                            field_type = int
+                        elif prop_schema.get("type") == "boolean":
+                            field_type = bool
+                        
+                        # Añadir campo dinámicamente
+                        setattr(DynamicToolInput, prop_name, Field(
+                            default=field_default,
+                            description=field_description
+                        ))
+                
+                # Crear función de ejecución con closure correcto
+                def make_tool_function(ti):
+                    def execute_tool_sync(**kwargs):
+                        return asyncio.run(
+                            self.mcp_manager.call_tool(
+                                ti["server"], 
+                                ti["original_name"], 
+                                kwargs
+                            )
+                        )
+                    return execute_tool_sync
+                
+                tool_function = make_tool_function(tool_info)
+                
+                # Crear herramienta LangChain
+                langchain_tool = StructuredTool.from_function(
+                    func=tool_function,
+                    name=tool_info["name"],
+                    description=tool_info["description"],
+                    args_schema=DynamicToolInput
                 )
-            
-            # Crear herramienta LangChain
-            langchain_tool = StructuredTool.from_function(
-                func=lambda **kwargs: asyncio.run(
-                    self.mcp_manager.call_tool(ti["server"], ti["original_name"], kwargs)
-                ),
-                name=tool_info["name"],
-                description=tool_info["description"],
-                args_schema=DynamicToolInput
-            )
-            
-            langchain_tools.append(langchain_tool)
+                
+                langchain_tools.append(langchain_tool)
+                
+            except Exception as e:
+                logger.error(f"Error creando herramienta LangChain para {tool_info['name']}: {e}")
         
         return langchain_tools
 
