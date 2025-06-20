@@ -17,14 +17,19 @@ supabase = "^2.5.0"
 pydantic = "<3"
 tiktoken = "^0.7.0"
 flask-cors = "^4.0.1"
-
-# --- Stack LangChain (Flexible y Compatible) ---
-langchain = "^0.2.5"
-langgraph = "^0.1.5"
-langchain-openai = "^0.1.17"
-langchain-google-genai = "^1.0.6"
 requests = "^2.32.4"
 pymupdf = "^1.26.1"
+
+# --- Stack LangChain Corregido ---
+langchain = ">=0.3,<0.4"
+langchain-community = ">=0.3,<0.4"
+langchain-openai = ">=0.2,<0.3"
+langchain-google-genai = ">=2,<3"
+langgraph = ">=0.2.20,<0.3"
+
+# --- Dependencias de Base de Datos y Drivers ---
+psycopg2-binary = "^2.9.9"
+aiopg = "^1.4.0"
 
 [build-system]
 requires = ["poetry-core"]
