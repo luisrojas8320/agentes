@@ -33,14 +33,29 @@ from api.rag_processor import process_and_store_document
 load_dotenv()
 app = Flask(__name__)
 
-origins = [os.environ.get("VERCEL_URL", "http://localhost:3000")]
+# ==============================================================================
+# --- INICIO DE LA CORRECCIÓN DE CORS ---
+#
+# El problema original era que solo se permitía localhost.
+# Ahora añadimos explícitamente la URL de tu frontend en Vercel a la lista
+# de orígenes permitidos.
+#
+origins = [
+    "https://v0-next-js-14-project-nu.vercel.app",
+    "http://localhost:3000"
+]
+
 CORS(
     app,
+    # Aplicamos la configuración a todas las rutas que empiecen con /api/
     resources={r"/api/*": {"origins": origins}},
     supports_credentials=True,
     methods=["GET", "POST", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization"]
 )
+# --- FIN DE LA CORRECCIÓN DE CORS ---
+# ==============================================================================
+
 
 logging.basicConfig(level=logging.INFO)
 
@@ -282,7 +297,7 @@ async def chat_handler():
             }).execute()
             
             if not response.data:
-                 return Response(json.dumps({"error": "No se pudo crear el chat."}), status=500, mimetype='application/json')
+                return Response(json.dumps({"error": "No se pudo crear el chat."}), status=500, mimetype='application/json')
             
             thread_id = response.data[0]['id']
             
