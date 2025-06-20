@@ -2,6 +2,8 @@ import os
 import requests
 import logging
 from supabase.client import Client
+# --- CORRECCIÓN: Añadir la importación que falta ---
+from langchain_openai import OpenAIEmbeddings
 
 def internet_search(query: str) -> str:
     """
