@@ -9,19 +9,14 @@ from flask_cors import CORS
 from dotenv import load_dotenv
 from supabase.client import create_client, Client
 
-# CORREGIDO: Importación correcta para PostgreSQL con LangGraph
+# CORREGIDO: Importaciones simplificadas y seguras
 try:
-    from langgraph.checkpoint.postgres import AsyncPostgresSaver
-    POSTGRES_AVAILABLE = True
-    logging.info("PostgreSQL AsyncPostgresSaver disponible")
+    from langgraph.checkpoint import MemorySaver
+    CHECKPOINTER_AVAILABLE = True
+    logging.info("MemorySaver disponible")
 except ImportError:
-    try:
-        from langgraph.checkpoint.sqlite import SqliteSaver
-        POSTGRES_AVAILABLE = False
-        logging.warning("PostgreSQL no disponible, usando SQLite como fallback")
-    except ImportError:
-        logging.error("No hay checkpointer disponible")
-        raise
+    CHECKPOINTER_AVAILABLE = False
+    logging.warning("No hay checkpointer disponible")
 
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -40,56 +35,43 @@ from api.rag_processor import process_and_store_document
 load_dotenv()
 app = Flask(__name__)
 
-# CORREGIDO: Configuración CORS simplificada y efectiva
-CORS(app, 
-     origins=["*"],  # Permitir todos los orígenes por ahora
-     methods=["GET", "POST", "OPTIONS"],
-     allow_headers=["Content-Type", "Authorization", "Origin", "Accept"],
-     supports_credentials=True)
+# CORREGIDO: Configuración CORS simplificada
+CORS(app, origins=["*"], methods=["GET", "POST", "OPTIONS"], 
+     allow_headers=["Content-Type", "Authorization", "Origin", "Accept"])
 
-# CORREGIDO: Manejadores de solicitudes simplificados
 @app.after_request
 def after_request(response):
-    # Asegurar headers CORS en todas las respuestas
     response.headers['Access-Control-Allow-Origin'] = '*'
     response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
     response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, Origin, Accept'
-    response.headers['Access-Control-Allow-Credentials'] = 'true'
     return response
 
 @app.before_request
 def handle_preflight():
     if request.method == "OPTIONS":
-        # Respuesta para solicitudes preflight
         response = Response()
         response.headers['Access-Control-Allow-Origin'] = '*'
         response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
         response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, Origin, Accept'
-        response.headers['Access-Control-Allow-Credentials'] = 'true'
         return response
 
 logging.basicConfig(level=logging.INFO)
 
-# CORREGIDO: Configurar checkpointer correctamente
+# CORREGIDO: Configurar checkpointer simplificado
 def setup_memory():
-    # CORREGIDO: Usar DATABASE_URL en lugar de POSTGRES_URL
-    db_url = os.environ.get("DATABASE_URL")
-    
-    if POSTGRES_AVAILABLE and db_url:
+    if CHECKPOINTER_AVAILABLE:
         try:
-            memory = AsyncPostgresSaver.from_conn_string(db_url)
-            logging.info("Usando PostgreSQL para persistencia de conversaciones")
-            return memory, True
+            memory = MemorySaver()
+            logging.info("Usando MemorySaver para persistencia de conversaciones")
+            return memory
         except Exception as e:
-            logging.error(f"Error configurando PostgreSQL: {e}")
-            logging.warning("Fallback a SQLite en memoria")
+            logging.error(f"Error configurando MemorySaver: {e}")
     
-    # Fallback a SQLite
-    memory = SqliteSaver.from_conn_string(":memory:")
-    logging.info("Usando SQLite en memoria como fallback")
-    return memory, False
+    # Fallback: sin memoria persistente
+    logging.warning("Sin memoria persistente - conversaciones no se guardarán entre reinicializaciones")
+    return None
 
-memory, using_postgres = setup_memory()
+memory = setup_memory()
 _APP_GRAPH = None
 _IS_INITIALIZING = False
 
@@ -212,8 +194,14 @@ def get_or_create_agent_graph():
         workflow.add_conditional_edges("agent", lambda state: "action" if state['messages'][-1].tool_calls else END)
         workflow.add_edge("action", "agent")
         
-        _APP_GRAPH = workflow.compile(checkpointer=memory)
-        logging.info("Grafo del agente compilado con memoria persistente y listo para usar.")
+        # CORREGIDO: Compilar con o sin checkpointer
+        if memory:
+            _APP_GRAPH = workflow.compile(checkpointer=memory)
+            logging.info("Grafo del agente compilado con memoria persistente.")
+        else:
+            _APP_GRAPH = workflow.compile()
+            logging.info("Grafo del agente compilado sin memoria persistente.")
+        
         return _APP_GRAPH
         
     except Exception as e:
@@ -244,12 +232,10 @@ def health_check():
         get_or_create_agent_graph()
     
     if _APP_GRAPH:
-        db_type = "PostgreSQL" if using_postgres else "SQLite"
         return jsonify({
             "status": "ok", 
             "message": "AI Playground Agent Backend está inicializado.",
-            "database": db_type,
-            "memory_type": "Persistente" if using_postgres else "En memoria"
+            "memory": "Disponible" if memory else "No disponible"
         })
     elif _IS_INITIALIZING:
         return jsonify({"status": "initializing", "message": "La inicialización del agente está en curso."}), 503
@@ -259,11 +245,7 @@ def health_check():
 @app.route('/api/chats', methods=['GET', 'OPTIONS'])
 def list_chats_handler():
     if request.method == 'OPTIONS':
-        response = Response()
-        response.headers['Access-Control-Allow-Origin'] = '*'
-        response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
-        response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, Origin, Accept'
-        return response
+        return Response()
         
     user, error_response = get_user_from_token(request)
     if error_response:
@@ -285,11 +267,7 @@ def list_chats_handler():
 @app.route('/api/upload', methods=['POST', 'OPTIONS'])
 def upload_handler():
     if request.method == 'OPTIONS':
-        response = Response()
-        response.headers['Access-Control-Allow-Origin'] = '*'
-        response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
-        response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, Origin, Accept'
-        return response
+        return Response()
         
     user, error_response = get_user_from_token(request)
     if error_response:
@@ -315,15 +293,10 @@ def upload_handler():
         logging.error(f"Error en upload_handler: {traceback.format_exc()}")
         return jsonify({"error": "Error interno del servidor al subir el archivo"}), 500
 
-# CORREGIDO: Chat handler sin async cuando no es necesario
 @app.route('/api/chat', methods=['POST', 'OPTIONS'])
 def chat_handler():
     if request.method == 'OPTIONS':
-        response = Response()
-        response.headers['Access-Control-Allow-Origin'] = '*'
-        response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
-        response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, Origin, Accept'
-        return response
+        return Response()
         
     app_graph = get_or_create_agent_graph()
     if app_graph is None:
@@ -354,57 +327,24 @@ def chat_handler():
                 return Response(json.dumps({"error": "No se pudo crear el chat en la base de datos."}), status=500, mimetype='application/json')
             thread_id = response_db.data[0]['id']
 
-        config = {"configurable": {"thread_id": str(thread_id)}}
+        # CORREGIDO: Configuración simplificada
+        config = {"configurable": {"thread_id": str(thread_id)}} if memory else {}
         
         current_date = datetime.now(timezone.utc).strftime('%d de %B de %Y')
         system_prompt = f"Hoy es {current_date}. Eres un orquestador experto. Tu principal objetivo es determinar la intención del usuario y seleccionar la herramienta más adecuada de tu lista. Si la petición es un saludo o una pregunta general sin tarea clara, responde directamente. Cuando una herramienta te devuelva información, sintetízala en una respuesta clara y concisa para el usuario, basándote siempre en la fecha actual."
         
         input_message = HumanMessage(content=last_user_message)
+        input_messages = [SystemMessage(content=system_prompt), input_message]
 
-        # CORREGIDO: Manejo correcto de async/sync según el tipo de checkpointer
         def generate_stream():
             try:
-                if using_postgres:
-                    # Para PostgreSQL async
-                    import asyncio
-                    
-                    async def async_stream():
-                        current_state = await memory.aget(config)
-                        input_messages = [SystemMessage(content=system_prompt), input_message] if not current_state else [input_message]
-                        
-                        async for chunk in app_graph.astream({"messages": input_messages}, config=config, recursion_limit=25):
-                            if 'agent' in chunk:
-                                agent_messages = chunk['agent'].get('messages', [])
-                                if agent_messages:
-                                    ai_message = agent_messages[-1]
-                                    if ai_message.content and not ai_message.tool_calls:
-                                        yield f"data: {json.dumps({'content': ai_message.content, 'thread_id': str(thread_id)})}\n\n"
-                    
-                    # Ejecutar async function en sync context
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                    try:
-                        async_gen = async_stream()
-                        while True:
-                            try:
-                                chunk = loop.run_until_complete(async_gen.__anext__())
-                                yield chunk
-                            except StopAsyncIteration:
-                                break
-                    finally:
-                        loop.close()
-                else:
-                    # Para SQLite sync
-                    current_state = memory.get(config)
-                    input_messages = [SystemMessage(content=system_prompt), input_message] if not current_state else [input_message]
-                    
-                    for chunk in app_graph.stream({"messages": input_messages}, config=config):
-                        if 'agent' in chunk:
-                            agent_messages = chunk['agent'].get('messages', [])
-                            if agent_messages:
-                                ai_message = agent_messages[-1]
-                                if ai_message.content and not ai_message.tool_calls:
-                                    yield f"data: {json.dumps({'content': ai_message.content, 'thread_id': str(thread_id)})}\n\n"
+                for chunk in app_graph.stream({"messages": input_messages}, config=config):
+                    if 'agent' in chunk:
+                        agent_messages = chunk['agent'].get('messages', [])
+                        if agent_messages:
+                            ai_message = agent_messages[-1]
+                            if ai_message.content and not ai_message.tool_calls:
+                                yield f"data: {json.dumps({'content': ai_message.content, 'thread_id': str(thread_id)})}\n\n"
                                     
             except Exception as e:
                 logging.error(f"Error en stream: {traceback.format_exc()}")
