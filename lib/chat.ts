@@ -29,7 +29,7 @@ export async function streamChatMessage(
         return;
     }
     try {
-        const response = await fetch(`${apiUrl}/api/chat`, {
+        const response = await fetch(`${apiUrl}/api`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
