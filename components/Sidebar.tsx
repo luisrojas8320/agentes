@@ -1,66 +1,40 @@
-"use client";
+'use client';
 
-import { Button } from "@/components/ui/button";
-import { HardDrive, Plus, Star, User } from "lucide-react";
+import { useChat } from '@/contexts/ChatContext';
+import { Button } from '@/components/ui/button';
+import { PlusCircle, MessageSquare } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
+// CORREGIDO: Usar 'export default function' para resolver el error de importación.
 export default function Sidebar() {
-  const menuItems = [
-    { name: "Creación de sistema de agente...", icon: HardDrive },
-    { name: "Plan de Contenidos para Posici...", icon: Star },
-  ];
+    const { chats, activeThreadId, startNewChat, loadChat, isLoading } = useChat();
 
-  const handleNewTask = () => {
-    // Lógica para una nueva tarea se puede añadir aquí
-    console.log("Botón 'Nueva tarea' presionado.");
-  };
-
-  return (
-    <aside className="w-1/4 min-w-[280px] max-w-[320px] bg-[#111111] text-gray-300 flex flex-col p-4">
-      <div className="flex-grow">
-        <div className="flex items-center justify-between mb-6">
-          <h1 className="text-lg font-semibold text-white tracking-wider uppercase">PLAYGROUND AGENTS</h1>
-        </div>
-        <Button onClick={handleNewTask} className="w-full bg-white text-black hover:bg-gray-200">
-          <Plus className="mr-2 h-4 w-4" />
-          Nueva tarea
-        </Button>
-        <nav className="mt-6">
-          <ul className="space-y-2">
-            <li>
-              <a href="#" className="flex items-center p-2 text-base font-normal text-white bg-[#1e1e1e] rounded-lg">
-                Todo
-              </a>
-            </li>
-            <li>
-              <a href="#" className="flex items-center p-2 text-base font-normal rounded-lg hover:bg-[#1e1e1e]">
-                Favoritos
-              </a>
-            </li>
-            <li>
-              <a href="#" className="flex items-center p-2 text-base font-normal rounded-lg hover:bg-[#1e1e1e]">
-                Programado
-              </a>
-            </li>
-          </ul>
-        </nav>
-        <div className="mt-8">
-          {menuItems.map((item, index) => (
-            <a key={index} href="#" className="flex items-center p-2 text-sm text-gray-400 hover:text-white rounded-lg">
-              <item.icon className="h-4 w-4 mr-3" />
-              <span>{item.name}</span>
-            </a>
-          ))}
-        </div>
-      </div>
-      <div className="flex-shrink-0">
-         {/* SECCIÓN ELIMINADA */}
-         <div className="flex items-center p-2">
-            <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center mr-3">
-                <User className="h-5 w-5 text-white" />
+    return (
+        <div className="w-full md:w-64 bg-[#1c1c1c] border-r border-gray-700 p-4 flex flex-col h-full">
+            <h2 className="text-lg font-semibold mb-4 text-gray-200">Conversaciones</h2>
+            <Button onClick={startNewChat} className="mb-4 bg-blue-600 hover:bg-blue-700" disabled={isLoading}>
+                <PlusCircle className="mr-2 h-4 w-4" />
+                Nuevo Chat
+            </Button>
+            <div className="flex-grow overflow-y-auto pr-2 -mr-2">
+                <div className="flex flex-col gap-2">
+                    {chats.map((chat) => (
+                        <Button
+                            key={chat.id}
+                            variant="ghost"
+                            onClick={() => loadChat(chat.id)}
+                            disabled={isLoading}
+                            className={cn(
+                                'w-full justify-start text-left truncate text-gray-300',
+                                activeThreadId === chat.id ? 'bg-gray-700 text-white' : 'hover:bg-gray-800'
+                            )}
+                        >
+                            <MessageSquare className="mr-2 h-4 w-4 flex-shrink-0" />
+                            <span className="truncate">{chat.title || 'Chat sin título'}</span>
+                        </Button>
+                    ))}
+                </div>
             </div>
-            <span className="font-semibold text-white">Luis Rojas</span>
-         </div>
-      </div>
-    </aside>
-  );
-}
+        </div>
+    );
+};

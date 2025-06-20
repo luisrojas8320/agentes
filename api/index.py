@@ -1,3 +1,4 @@
+# Ruta: api/index.py
 import os
 import operator
 import logging
@@ -8,8 +9,12 @@ from flask import Flask, request, Response, stream_with_context, jsonify
 from flask_cors import CORS
 from dotenv import load_dotenv
 from supabase.client import create_client, Client
+import psycopg2 # Necesario para langgraph-postgres
 
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+# --- NUEVO: Importaciones para memoria persistente ---
+from langgraph.checkpoint.aiopg import AsyncPostgresSaver
+
+from langchain_openai import ChatOpenAI
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_community.chat_models import ChatDeepseek
 from langchain_core.messages import (
@@ -28,12 +33,7 @@ from api.rag_processor import process_and_store_document
 load_dotenv()
 app = Flask(__name__)
 
-# --- CORRECCIÓN: Configuración de CORS más robusta ---
-origins = ["http://localhost:3000"]
-vercel_url = os.environ.get("VERCEL_URL")
-if vercel_url:
-    origins.append(vercel_url)
-
+origins = [os.environ.get("VERCEL_URL", "http://localhost:3000")]
 CORS(
     app,
     resources={r"/api/*": {"origins": origins}},
@@ -43,13 +43,19 @@ CORS(
 )
 
 logging.basicConfig(level=logging.INFO)
+
+# --- NUEVO: Configuración de la memoria (checkpointer) ---
+db_url = os.environ.get("POSTGRES_URL")
+if not db_url:
+    raise ValueError("POSTGRES_URL no está configurada para la persistencia del grafo.")
+memory = AsyncPostgresSaver.from_conn_string(db_url)
 _APP_GRAPH = None
 _IS_INITIALIZING = False
 
-# --- Funciones de Ayuda ---
+
+# --- Funciones de Ayuda (sin cambios) ---
 def create_supabase_client(admin=False) -> Client:
     url = os.environ.get("SUPABASE_URL")
-    # CORRECCIÓN: Usa la clave de servicio si se solicita el rol de admin
     key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY") if admin else os.environ.get("SUPABASE_ANON_KEY")
     if not url or not key: raise ValueError("Variables de Supabase no configuradas.")
     return create_client(url, key)
@@ -84,13 +90,11 @@ def get_all_available_tools(supabase_user_client: Client) -> list:
     search_tool = StructuredTool.from_function(func=internet_search, name="internet_search", description="Busca en internet para obtener información actualizada.")
     url_analyzer_tool = StructuredTool.from_function(func=analyze_url_content, name="analyze_url_content", description="Extrae texto de una imagen o PDF desde una URL.")
     
-    # CORRECCIÓN: Añadir la herramienta de búsqueda de documentos (RAG)
     rag_tool = StructuredTool.from_function(
         func=lambda q: search_my_documents(q, supabase_user_client),
         name="search_my_documents",
         description="Busca en los documentos personales del usuario para encontrar información relevante. Úsalo si el usuario pregunta sobre 'mi documento', 'el archivo que subí', o temas muy específicos que no son de conocimiento general."
     )
-    
     all_tools.extend([search_tool, url_analyzer_tool, rag_tool])
     
     try:
@@ -121,11 +125,8 @@ def get_or_create_agent_graph():
     _IS_INITIALIZING = True
     logging.info("Iniciando la creación del grafo del agente...")
     try:
-        # Usamos el cliente no-admin para la mayoría de operaciones del grafo
-        supabase_client = create_supabase_client(admin=False) 
+        supabase_client = create_supabase_client(admin=False)
         all_tools = get_all_available_tools(supabase_client)
-        
-        # CORRECCIÓN: Usar gpt-4o para el orquestador
         orchestrator_llm = get_chat_model("openai", "gpt-4o")
         llm_with_tools = orchestrator_llm.bind_tools(all_tools)
 
@@ -160,8 +161,10 @@ def get_or_create_agent_graph():
         workflow.set_entry_point("agent")
         workflow.add_conditional_edges("agent", lambda state: "action" if state['messages'][-1].tool_calls else END)
         workflow.add_edge("action", "agent")
-        _APP_GRAPH = workflow.compile()
-        logging.info("Grafo del agente compilado y listo para usar.")
+        
+        # --- MODIFICADO: Compilar el grafo con el checkpointer de memoria ---
+        _APP_GRAPH = workflow.compile(checkpointer=memory)
+        logging.info("Grafo del agente compilado con memoria persistente y listo para usar.")
         return _APP_GRAPH
     except Exception as e:
         logging.error(f"ERROR FATAL DURANTE LA INICIALIZACIÓN: {e}", exc_info=True)
@@ -169,6 +172,23 @@ def get_or_create_agent_graph():
         return None
     finally:
         _IS_INITIALIZING = False
+
+def get_user_from_token(request):
+    """Función de ayuda para obtener el usuario de Supabase a partir del token."""
+    jwt = request.headers.get('Authorization', '').replace('Bearer ', '')
+    if not jwt:
+        return None, (jsonify({"error": "Token de autorización ausente"}), 401)
+    
+    try:
+        supabase_client = create_supabase_client()
+        user_response = supabase_client.auth.get_user(jwt)
+        if not user_response.user:
+            return None, (jsonify({"error": "Token inválido o expirado"}), 401)
+        return user_response.user, None
+    except Exception as e:
+        logging.error(f"Error al validar token: {e}")
+        return None, (jsonify({"error": "Error interno al validar el token"}), 500)
+
 
 @app.route("/")
 def health_check():
@@ -181,9 +201,34 @@ def health_check():
     else:
         return jsonify({"status": "error", "message": "La inicialización del agente falló."}), 500
 
-# CORRECCIÓN: Añadir el endpoint /api/upload
+# --- NUEVO: Endpoint para listar los chats del usuario ---
+@app.route('/api/chats', methods=['GET'])
+def list_chats_handler():
+    user, error_response = get_user_from_token(request)
+    if error_response:
+        return error_response
+    
+    try:
+        supabase_client = create_supabase_client()
+        # Se asume que el cliente se inicializa con el token del usuario para que RLS funcione
+        response = supabase_client.from_('chats').select('id, title, created_at').eq('user_id', user.id).order('created_at', desc=True).execute()
+        
+        if response.data is not None:
+            return jsonify(response.data), 200
+        else:
+            return jsonify({"error": "No se pudieron obtener los chats."}), 500
+
+    except Exception as e:
+        logging.error(f"Error en list_chats_handler: {traceback.format_exc()}")
+        return jsonify({"error": "Error interno del servidor al listar chats"}), 500
+
+
 @app.route('/api/upload', methods=['POST'])
 def upload_handler():
+    user, error_response = get_user_from_token(request)
+    if error_response:
+        return error_response
+
     if 'file' not in request.files:
         return jsonify({"error": "No se encontró ningún archivo"}), 400
     file = request.files['file']
@@ -191,23 +236,9 @@ def upload_handler():
         return jsonify({"error": "No se seleccionó ningún archivo"}), 400
     
     try:
-        # Autenticar al usuario para asociar el documento
-        jwt = request.headers.get('Authorization', '').replace('Bearer ', '')
-        if not jwt:
-            return jsonify({"error": "Token de autorización ausente"}), 401
-        
-        temp_user_client = create_supabase_client(admin=False)
-        user_response = temp_user_client.auth.get_user(jwt)
-        user = user_response.user
-        if not user:
-            return jsonify({"error": "Usuario no autenticado o token inválido"}), 401
-        user_id = user.id
-
         file_content = file.read()
-        
-        # Usar cliente admin para procesar y almacenar el documento
         supabase_admin_client = create_supabase_client(admin=True)
-        result = process_and_store_document(supabase_admin_client, file_content, user_id)
+        result = process_and_store_document(supabase_admin_client, file_content, user.id)
         
         if result["success"]:
             return jsonify({"message": result["message"]}), 200
@@ -218,38 +249,68 @@ def upload_handler():
         logging.error(f"Error en upload_handler: {traceback.format_exc()}")
         return jsonify({"error": "Error interno del servidor al subir el archivo"}), 500
 
+# --- MODIFICADO: Endpoint de chat para usar memoria persistente ---
 @app.route('/api/chat', methods=['POST'])
-def chat_handler():
+async def chat_handler():
     app_graph = get_or_create_agent_graph()
     if app_graph is None:
         return Response(json.dumps({"error": "Agente no disponible."}), status=503, mimetype='application/json')
+    
+    user, error_response = get_user_from_token(request)
+    if error_response:
+        return error_response
+    
     try:
         data = request.get_json()
-        history = data.get('messages', [])
-        input_messages = [HumanMessage(content=msg['content']) if msg['role'] == 'user' else AIMessage(content=msg['content']) for msg in history]
+        message_content = data.get('message', '')
+        thread_id = data.get('thread_id') # Puede ser None
         
+        # El cliente Supabase necesita el token para que RLS funcione en la creación del chat
+        jwt = request.headers.get('Authorization')
+        supabase_client = create_supabase_client()
+        supabase_client.auth.set_session(access_token=jwt.replace('Bearer ', ''), refresh_token="dummy")
+
+
+        # Si no hay thread_id, creamos una nueva conversación
+        if not thread_id:
+            first_message_content = message_content.split('\n')[0]
+            title = (first_message_content[:50] + '...') if len(first_message_content) > 50 else first_message_content
+            
+            response = supabase_client.from_('chats').insert({
+                'user_id': user.id,
+                'title': title
+            }).execute()
+            
+            if not response.data:
+                 return Response(json.dumps({"error": "No se pudo crear el chat."}), status=500, mimetype='application/json')
+            
+            thread_id = response.data[0]['id']
+            
+        # Configuración para la ejecución del grafo con estado
+        config = {"configurable": {"thread_id": str(thread_id)}}
+
         current_date = datetime.now(timezone.utc).strftime('%d de %B de %Y')
         system_prompt = f"Hoy es {current_date}. Eres un orquestador experto. Tu principal objetivo es determinar la intención del usuario y seleccionar la herramienta más adecuada de tu lista. Si la petición es un saludo o una pregunta general sin tarea clara, responde directamente. Cuando una herramienta te devuelva información, sintetízala en una respuesta clara y concisa para el usuario, basándote siempre en la fecha actual."
         
-        # Inyectar o reemplazar el system prompt de forma robusta
-        is_system_prompt_present = any(isinstance(m, SystemMessage) for m in input_messages)
-        if not is_system_prompt_present:
-            input_messages.insert(0, SystemMessage(content=system_prompt))
+        input_message = HumanMessage(content=message_content)
+        
+        # El checkpointer ya maneja el historial, pero inyectamos el system prompt si es la primera vez.
+        current_state = await memory.aget(config)
+        if not current_state:
+            input_messages = [SystemMessage(content=system_prompt), input_message]
         else:
-            for i, msg in enumerate(input_messages):
-                if isinstance(msg, SystemMessage):
-                    input_messages[i] = SystemMessage(content=system_prompt)
-                    break
+            input_messages = [input_message]
 
-        def generate_stream():
+        async def generate_stream():
             try:
-                for chunk in app_graph.stream({"messages": input_messages}, config={"recursion_limit": 25}):
+                # El 'stream' ahora recibe la configuración del hilo
+                async for chunk in app_graph.astream({"messages": input_messages}, config=config, recursion_limit=25):
                     if 'agent' in chunk:
                         agent_messages = chunk['agent'].get('messages', [])
                         if agent_messages:
                             ai_message = agent_messages[-1]
                             if ai_message.content and not ai_message.tool_calls:
-                                yield f"data: {json.dumps({'content': ai_message.content})}\n\n"
+                                yield f"data: {json.dumps({'content': ai_message.content, 'thread_id': str(thread_id)})}\n\n"
             except Exception as e:
                 logging.error(f"Error en stream: {traceback.format_exc()}")
                 yield f"data: {json.dumps({'error': f'Error en el backend: {str(e)}'})}\n\n"
@@ -259,6 +320,7 @@ def chat_handler():
     except Exception as e:
         logging.error(f"Error en chat_handler: {traceback.format_exc()}")
         return Response(json.dumps({"error": f"Error en el servidor: {str(e)}"}), status=500, mimetype='application/json')
+
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
