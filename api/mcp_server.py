@@ -1,4 +1,4 @@
-# api/mcp_server.py - Servidor MCP sin dependencias externas
+# api/mcp_server.py - Servidor MCP con herramientas matemáticas
 import asyncio
 import logging
 import os
@@ -7,7 +7,6 @@ import sys
 from typing import Any, Dict, List, Optional, Union
 from supabase.client import create_client
 from api.tools import tool_registry
-from api.rag_processor import process_and_store_document
 
 # Configurar logging
 logging.basicConfig(level=logging.INFO)
@@ -88,6 +87,8 @@ class MCPServer:
                     param_type = "boolean"
                 elif param.annotation == list:
                     param_type = "array"
+                elif param.annotation == float:
+                    param_type = "number"
             
             schema["properties"][param_name] = {
                 "type": param_type,
@@ -237,6 +238,8 @@ def get_supabase_client():
     
     return create_client(url, key)
 
+# ========== HERRAMIENTAS BÁSICAS ==========
+
 @app.tool("search_internet", "Busca información en internet usando Jina AI")
 async def search_internet(query: str) -> str:
     """Busca información en internet"""
@@ -265,6 +268,97 @@ async def search_documents(query: str, user_id: str = None) -> str:
         logger.error(f"Error en búsqueda de documentos: {e}")
         return f"Error al buscar en documentos: {str(e)}"
 
+# ========== HERRAMIENTAS MATEMÁTICAS AVANZADAS ==========
+
+@app.tool("monte_carlo_simulation", "Simulaciones Monte Carlo para análisis financiero")
+async def monte_carlo_mcp(scenario: str, **kwargs) -> str:
+    """Simulaciones Monte Carlo"""
+    logger.info(f"MCP: Simulación Monte Carlo {scenario}")
+    return tool_registry.execute_tool("monte_carlo_simulation", scenario=scenario, **kwargs)
+
+@app.tool("regression_analysis", "Análisis de regresión lineal y polinómica")
+async def regression_mcp(x_data: list, y_data: list, polynomial_degree: int = 1) -> str:
+    """Análisis de regresión"""
+    logger.info(f"MCP: Análisis de regresión grado {polynomial_degree}")
+    return tool_registry.execute_tool("regression_analysis", x_data=x_data, y_data=y_data, polynomial_degree=polynomial_degree)
+
+@app.tool("financial_projections", "Proyecciones financieras usando diferentes métodos")
+async def projections_mcp(data: list, periods_ahead: int = 12, method: str = "linear") -> str:
+    """Proyecciones financieras"""
+    logger.info(f"MCP: Proyecciones {method} para {periods_ahead} períodos")
+    return tool_registry.execute_tool("financial_projections", data=data, periods_ahead=periods_ahead, method=method)
+
+@app.tool("portfolio_optimization", "Optimización de portafolios de inversión")
+async def portfolio_mcp(expected_returns: list, cov_matrix: list, risk_tolerance: float = 1.0) -> str:
+    """Optimización de portafolios"""
+    logger.info(f"MCP: Optimización de portafolio con {len(expected_returns)} activos")
+    return tool_registry.execute_tool("portfolio_optimization", expected_returns=expected_returns, cov_matrix=cov_matrix, risk_tolerance=risk_tolerance)
+
+@app.tool("statistical_analysis", "Análisis estadístico completo")
+async def statistics_mcp(data: list, confidence_level: float = 0.95) -> str:
+    """Análisis estadístico"""
+    logger.info(f"MCP: Análisis estadístico de {len(data)} observaciones")
+    return tool_registry.execute_tool("statistical_analysis", data=data, confidence_level=confidence_level)
+
+# ========== HERRAMIENTAS ESPECÍFICAS DE EJEMPLO ==========
+
+@app.tool("calculate_compound_interest", "Calcula interés compuesto")
+async def compound_interest(principal: float, rate: float, time: int, compound_frequency: int = 1) -> str:
+    """Calcula interés compuesto"""
+    logger.info(f"Calculando interés compuesto: ${principal} al {rate}% por {time} años")
+    
+    try:
+        # A = P(1 + r/n)^(nt)
+        amount = principal * (1 + rate/100/compound_frequency) ** (compound_frequency * time)
+        interest = amount - principal
+        
+        return f"""Cálculo de Interés Compuesto:
+Capital inicial: ${principal:,.2f}
+Tasa anual: {rate}%
+Tiempo: {time} años
+Frecuencia de capitalización: {compound_frequency} veces por año
+
+Resultado:
+• Monto final: ${amount:,.2f}
+• Interés ganado: ${interest:,.2f}
+• Rendimiento total: {(interest/principal)*100:.2f}%
+"""
+    except Exception as e:
+        return f"Error calculando interés compuesto: {str(e)}"
+
+@app.tool("calculate_loan_payment", "Calcula pagos de préstamos")
+async def loan_payment(principal: float, annual_rate: float, years: int) -> str:
+    """Calcula pago mensual de préstamo"""
+    logger.info(f"Calculando pago de préstamo: ${principal} al {annual_rate}% por {years} años")
+    
+    try:
+        monthly_rate = annual_rate / 100 / 12
+        num_payments = years * 12
+        
+        if monthly_rate == 0:
+            monthly_payment = principal / num_payments
+        else:
+            monthly_payment = principal * (monthly_rate * (1 + monthly_rate)**num_payments) / ((1 + monthly_rate)**num_payments - 1)
+        
+        total_paid = monthly_payment * num_payments
+        total_interest = total_paid - principal
+        
+        return f"""Cálculo de Préstamo:
+Capital: ${principal:,.2f}
+Tasa anual: {annual_rate}%
+Plazo: {years} años
+
+Resultado:
+• Pago mensual: ${monthly_payment:,.2f}
+• Total a pagar: ${total_paid:,.2f}
+• Intereses totales: ${total_interest:,.2f}
+• % de intereses: {(total_interest/principal)*100:.2f}%
+"""
+    except Exception as e:
+        return f"Error calculando pago de préstamo: {str(e)}"
+
+# ========== RECURSOS Y UTILIDADES ==========
+
 @app.tool("get_system_stats", "Obtiene estadísticas del sistema")
 async def get_system_stats() -> str:
     """Obtiene estadísticas del sistema"""
@@ -285,12 +379,34 @@ async def get_system_stats() -> str:
         messages_response = supabase_client.from_('messages').select('id', count='exact').execute()
         messages_count = messages_response.count or 0
         
+        # Herramientas disponibles
+        tools_count = len(tool_registry.list_tools())
+        
         stats = f"""Estadísticas de la plataforma:
-- Chats totales: {chats_count}
-- Documentos procesados: {docs_count}
-- Mensajes intercambiados: {messages_count}
-- Herramientas disponibles: {len(tool_registry.list_tools())}
+• Chats totales: {chats_count:,}
+• Documentos procesados: {docs_count:,}
+• Mensajes intercambiados: {messages_count:,}
+• Herramientas disponibles: {tools_count}
+
+Herramientas matemáticas:
 """
+        
+        # Listar herramientas matemáticas específicamente
+        math_tools = [
+            "monte_carlo_simulation",
+            "regression_analysis", 
+            "financial_projections",
+            "portfolio_optimization",
+            "statistical_analysis"
+        ]
+        
+        for tool_name in math_tools:
+            tool_obj = tool_registry.get_tool(tool_name)
+            if tool_obj:
+                stats += f"• ✓ {tool_name}\n"
+            else:
+                stats += f"• ✗ {tool_name} (no disponible)\n"
+        
         return stats
         
     except Exception as e:
@@ -340,17 +456,63 @@ Herramientas registradas: {len(tool_registry.list_tools())}
     except Exception as e:
         return f"Error verificando estado: {str(e)}"
 
-@app.prompt("help_prompt", "Prompt de ayuda para usar la plataforma")
-async def help_prompt() -> str:
-    """Prompt de ayuda"""
-    return """Eres un asistente de la plataforma AI Playground. Puedes ayudar con:
+@app.resource("platform://math_examples", "Ejemplos de uso de herramientas matemáticas")
+async def math_examples() -> str:
+    """Ejemplos de herramientas matemáticas"""
+    return """Ejemplos de uso de herramientas matemáticas:
 
-1. Búsquedas en internet usando search_internet()
-2. Análisis de URLs con analyze_url() 
-3. Búsqueda en documentos personales con search_documents()
-4. Obtener estadísticas del sistema con get_system_stats()
+1. SIMULACIÓN MONTE CARLO:
+   - Precios de acciones: monte_carlo_simulation(scenario="stock_price", initial_price=100, days=252, mu=0.1, sigma=0.2)
+   - VaR de portafolio: monte_carlo_simulation(scenario="portfolio_var", returns=[...], weights=[...])
 
-Siempre sé útil, preciso y mantén la privacidad de los usuarios."""
+2. ANÁLISIS DE REGRESIÓN:
+   - Lineal: regression_analysis(x_data=[1,2,3,4,5], y_data=[2,4,6,8,10])
+   - Polinómica: regression_analysis(x_data=[...], y_data=[...], polynomial_degree=3)
+
+3. PROYECCIONES FINANCIERAS:
+   - Lineal: financial_projections(data=[100,105,110,115], periods_ahead=12, method="linear")
+   - Exponencial: financial_projections(data=[...], method="exponential")
+   - Suavizado: financial_projections(data=[...], method="exponential_smoothing", alpha=0.3)
+
+4. OPTIMIZACIÓN DE PORTAFOLIOS:
+   - portfolio_optimization(expected_returns=[0.1,0.12,0.08], cov_matrix=[[...]], risk_tolerance=1.0)
+
+5. ANÁLISIS ESTADÍSTICO:
+   - statistical_analysis(data=[1,2,3,4,5,6,7,8,9,10], confidence_level=0.95)
+"""
+
+@app.prompt("math_help", "Prompt de ayuda para herramientas matemáticas")
+async def math_help_prompt() -> str:
+    """Prompt de ayuda matemática"""
+    return """Soy un asistente especializado en análisis matemático y financiero. Puedo ayudarte con:
+
+SIMULACIONES MONTE CARLO:
+- Modelado de precios de acciones con movimiento browniano
+- Cálculo de Value at Risk (VaR) para portafolios
+- Análisis de escenarios probabilísticos
+
+ANÁLISIS DE REGRESIÓN:
+- Regresión lineal y polinómica
+- Validación cruzada y métricas de rendimiento
+- Predicciones con intervalos de confianza
+
+PROYECCIONES FINANCIERAS:
+- Tendencias lineales y exponenciales
+- Suavizado exponencial
+- Intervalos de confianza para proyecciones
+
+OPTIMIZACIÓN DE PORTAFOLIOS:
+- Teoría moderna de portafolios (Markowitz)
+- Cálculo de frontera eficiente
+- Optimización riesgo-retorno
+
+ANÁLISIS ESTADÍSTICO:
+- Estadísticas descriptivas completas
+- Pruebas de normalidad
+- Detección de valores atípicos
+- Intervalos de confianza
+
+Proporciona datos claros y específicos para obtener análisis precisos."""
 
 class StdioTransport:
     """Transporte básico stdio para MCP"""
@@ -390,7 +552,7 @@ class StdioTransport:
 
 async def main():
     """Función principal del servidor MCP"""
-    logger.info("Iniciando servidor MCP de AI Playground...")
+    logger.info("Iniciando servidor MCP de AI Playground con herramientas matemáticas...")
     
     try:
         # Verificar configuración
@@ -400,6 +562,13 @@ async def main():
         # Verificar herramientas
         tools = tool_registry.list_tools()
         logger.info(f"✓ {len(tools)} herramientas cargadas")
+        
+        # Mostrar herramientas matemáticas disponibles
+        math_tools = [t for t in tools if any(keyword in t['name'] for keyword in ['monte_carlo', 'regression', 'projection', 'portfolio', 'statistical'])]
+        if math_tools:
+            logger.info(f"✓ {len(math_tools)} herramientas matemáticas avanzadas disponibles")
+        else:
+            logger.warning("⚠ Herramientas matemáticas no disponibles - verificar instalación de numpy, scipy, scikit-learn")
         
         # Crear transporte stdio
         transport = StdioTransport(app)
