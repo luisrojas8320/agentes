@@ -5,10 +5,11 @@ import { cn } from '@/lib/utils';
 export default function TypingAnimation() {
   return (
     <div className="flex gap-4">
-      {/* Icono AI con animación de pensamiento */}
+      {/* Icono AI con animación personalizada */}
       <div className="flex h-8 w-8 shrink-0 select-none items-center justify-center rounded-full bg-muted/70 border border-border/30 relative">
+        {/* Icono AI base */}
         <svg 
-          className="w-4 h-4 text-muted-foreground/80 animate-pulse" 
+          className="w-4 h-4 text-foreground/80" 
           fill="none" 
           stroke="currentColor" 
           viewBox="0 0 24 24"
@@ -21,37 +22,46 @@ export default function TypingAnimation() {
           />
         </svg>
         
-        {/* Indicador de actividad giratorio */}
-        <div className="absolute -top-1 -right-1">
-          <div className="w-3 h-3 border border-muted-foreground/40 border-t-muted-foreground/80 rounded-full animate-spin" />
+        {/* Círculos concéntricos animados */}
+        <div className="absolute inset-0 rounded-full">
+          <div className="absolute inset-0 rounded-full border border-foreground/20 animate-ping" style={{animationDuration: '2s'}} />
+          <div className="absolute inset-1 rounded-full border border-foreground/30 animate-ping" style={{animationDuration: '2.5s', animationDelay: '0.5s'}} />
+        </div>
+        
+        {/* Punto de actividad giratorio */}
+        <div className="absolute -top-0.5 -right-0.5">
+          <div className="w-2.5 h-2.5 relative">
+            <div className="absolute inset-0 rounded-full bg-foreground/60 animate-pulse" />
+            <div className="absolute top-0.5 left-0.5 w-1.5 h-1.5 bg-foreground/80 rounded-full animate-spin" style={{animationDuration: '3s'}} />
+          </div>
         </div>
       </div>
       
       <div className="flex-1 space-y-2 overflow-hidden">
         <div className="flex items-center gap-3 px-4 py-3 bg-muted/20 rounded-2xl">
-          {/* Animación de ondas de pensamiento */}
+          {/* Puntos rebotantes mejorados */}
           <div className="flex items-center gap-1.5">
             <div className="flex space-x-1">
-              <div className="w-2 h-2 bg-muted-foreground/40 rounded-full animate-bounce" style={{animationDelay: '0ms'}} />
-              <div className="w-2 h-2 bg-muted-foreground/50 rounded-full animate-bounce" style={{animationDelay: '150ms'}} />
-              <div className="w-2 h-2 bg-muted-foreground/60 rounded-full animate-bounce" style={{animationDelay: '300ms'}} />
+              <div className="w-2 h-2 bg-foreground/40 rounded-full animate-bounce" style={{animationDelay: '0ms', animationDuration: '1.4s'}} />
+              <div className="w-2 h-2 bg-foreground/50 rounded-full animate-bounce" style={{animationDelay: '150ms', animationDuration: '1.4s'}} />
+              <div className="w-2 h-2 bg-foreground/60 rounded-full animate-bounce" style={{animationDelay: '300ms', animationDuration: '1.4s'}} />
             </div>
             
             {/* Separador sutil */}
-            <div className="w-px h-4 bg-muted-foreground/20 mx-2" />
+            <div className="w-px h-4 bg-foreground/20 mx-2" />
             
             {/* Ondas de procesamiento */}
             <div className="flex items-center space-x-0.5">
-              <div className="w-1 h-3 bg-muted-foreground/30 rounded-full animate-pulse" style={{animationDelay: '0ms'}} />
-              <div className="w-1 h-4 bg-muted-foreground/40 rounded-full animate-pulse" style={{animationDelay: '100ms'}} />
-              <div className="w-1 h-5 bg-muted-foreground/50 rounded-full animate-pulse" style={{animationDelay: '200ms'}} />
-              <div className="w-1 h-4 bg-muted-foreground/40 rounded-full animate-pulse" style={{animationDelay: '300ms'}} />
-              <div className="w-1 h-3 bg-muted-foreground/30 rounded-full animate-pulse" style={{animationDelay: '400ms'}} />
+              <div className="w-1 h-3 bg-foreground/30 rounded-full animate-wave-pulse" style={{animationDelay: '0ms'}} />
+              <div className="w-1 h-4 bg-foreground/40 rounded-full animate-wave-pulse" style={{animationDelay: '100ms'}} />
+              <div className="w-1 h-5 bg-foreground/50 rounded-full animate-wave-pulse" style={{animationDelay: '200ms'}} />
+              <div className="w-1 h-4 bg-foreground/40 rounded-full animate-wave-pulse" style={{animationDelay: '300ms'}} />
+              <div className="w-1 h-3 bg-foreground/30 rounded-full animate-wave-pulse" style={{animationDelay: '400ms'}} />
             </div>
           </div>
           
           {/* Texto de estado */}
-          <span className="text-xs text-muted-foreground/70 font-medium">
+          <span className="text-xs text-foreground/70 font-medium">
             Procesando
           </span>
         </div>

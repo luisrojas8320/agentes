@@ -5,26 +5,26 @@
 
 @layer base {
   :root {
-    /* Paleta minimalista inspirada en Gemini */
+    /* Paleta minimalista con colores más blancos */
     --background: 210 11% 15%; /* Gris oscuro como Gemini */
-    --foreground: 0 0% 85%;
+    --foreground: 0 0% 92%; /* Más blanco */
     --card: 210 11% 18%;
-    --card-foreground: 0 0% 85%;
+    --card-foreground: 0 0% 92%;
     --popover: 210 11% 18%;
-    --popover-foreground: 0 0% 85%;
-    --primary: 0 0% 85%; /* Sin colores llamativos */
+    --popover-foreground: 0 0% 92%;
+    --primary: 0 0% 92%; /* Más blanco */
     --primary-foreground: 210 11% 15%;
     --secondary: 210 11% 22%;
-    --secondary-foreground: 0 0% 85%;
+    --secondary-foreground: 0 0% 92%;
     --muted: 210 11% 20%;
-    --muted-foreground: 0 0% 55%;
+    --muted-foreground: 0 0% 65%; /* Más claro */
     --accent: 210 11% 25%;
-    --accent-foreground: 0 0% 85%;
+    --accent-foreground: 0 0% 92%;
     --destructive: 0 50% 45%;
     --destructive-foreground: 0 0% 98%;
     --border: 210 11% 25%;
     --input: 210 11% 22%;
-    --ring: 0 0% 60%;
+    --ring: 0 0% 70%; /* Más claro */
     --radius: 0.5rem;
   }
 }
@@ -61,12 +61,12 @@
 }
 
 ::-webkit-scrollbar-thumb {
-  background: hsl(var(--muted-foreground) / 0.3);
+  background: hsl(var(--foreground) / 0.3);
   border-radius: 2px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: hsl(var(--muted-foreground) / 0.5);
+  background: hsl(var(--foreground) / 0.5);
 }
 
 /* Mensajes ultra limpios */
@@ -99,11 +99,6 @@
 /* Transiciones ultra suaves */
 * {
   transition: all 0.15s ease;
-}
-
-/* Botones minimalistas */
-.btn-minimal {
-  @apply bg-transparent border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/50;
 }
 
 /* Estados de focus minimalistas */
@@ -167,7 +162,18 @@
 
 @keyframes ping-soft {
   75%, 100% {
-    transform: scale(1.1);
+    transform: scale(1.2);
+    opacity: 0;
+  }
+}
+
+@keyframes ripple {
+  0% {
+    transform: scale(0.8);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1.4);
     opacity: 0;
   }
 }
@@ -194,6 +200,10 @@
 
 .animate-ping-soft {
   animation: ping-soft 1s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+.animate-ripple {
+  animation: ripple 2s ease-out infinite;
 }
 
 /* Mejores animaciones para bounce con delays */
@@ -257,4 +267,124 @@
   .message-minimal {
     @apply max-w-[90%];
   }
+}
+
+/* Texto más claro globalmente */
+.text-lighter {
+  color: hsl(var(--foreground) / 0.9);
+}
+
+/* Mejoras para el contraste */
+button, .btn {
+  color: hsl(var(--foreground) / 0.8);
+}
+
+button:hover, .btn:hover {
+  color: hsl(var(--foreground) / 1);
+}
+
+/* Estilos específicos para sidebar */
+.sidebar-button {
+  @apply text-foreground/80 hover:text-foreground;
+}
+
+.sidebar-text {
+  @apply text-foreground/70;
+}
+
+/* Colores más blancos para elementos específicos */
+.chat-title {
+  @apply text-foreground/85;
+}
+
+.status-text {
+  @apply text-foreground/75;
+}
+
+/* Animaciones adicionales para el icono de carga */
+@keyframes pulse-ring {
+  0% {
+    transform: scale(0.33);
+  }
+  80%, 100% {
+    opacity: 0;
+  }
+}
+
+@keyframes orbit {
+  0% {
+    transform: rotate(0deg) translateX(8px) rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg) translateX(8px) rotate(-360deg);
+  }
+}
+
+.animate-pulse-ring {
+  animation: pulse-ring 1.25s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+}
+
+.animate-orbit {
+  animation: orbit 3s linear infinite;
+}
+
+/* Mejoras de accesibilidad con colores más claros */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Efectos para botones específicos */
+.btn-logout {
+  @apply text-foreground/70 hover:text-destructive transition-colors;
+}
+
+.btn-new-chat {
+  @apply text-foreground/80 hover:text-foreground transition-colors;
+}
+
+/* Estados de carga mejorados */
+.loading-dots {
+  @apply flex space-x-1;
+}
+
+.loading-dots > div {
+  @apply w-2 h-2 bg-foreground/50 rounded-full animate-bounce;
+}
+
+.loading-dots > div:nth-child(2) {
+  animation-delay: 0.1s;
+}
+
+.loading-dots > div:nth-child(3) {
+  animation-delay: 0.2s;
+}
+
+/* Mejoras para el texto del placeholder */
+::placeholder {
+  color: hsl(var(--foreground) / 0.5) !important;
+}
+
+/* Estilos para el input principal */
+.main-input {
+  @apply text-foreground placeholder:text-foreground/50;
+}
+
+/* Estados de iconos mejorados */
+.icon-active {
+  @apply text-foreground/90;
+}
+
+.icon-inactive {
+  @apply text-foreground/50;
+}
+
+/* Transiciones suaves para todos los textos */
+span, p, div, button {
+  transition: color 0.15s ease;
 }

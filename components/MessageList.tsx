@@ -39,11 +39,11 @@ export default function MessageList() {
     <div ref={chatContainerRef} className="flex-1 overflow-y-auto">
       <div className="max-w-4xl mx-auto px-6 py-8">
         {showWelcome && messages.length === 0 ? (
-          // Pantalla ultra minimalista como Gemini
-          <div className="flex flex-col items-start justify-center min-h-[70vh] animate-fade-in">
-            <div className="space-y-2">
+          // Pantalla ultra minimalista centrada como Gemini
+          <div className="flex flex-col items-center justify-center min-h-[70vh] animate-fade-in">
+            <div className="text-center space-y-2">
               <h1 className="text-5xl font-normal text-foreground">
-                Hola, <span className="text-muted-foreground">{getUserName()}</span>
+                Hola, <span className="text-foreground/60">{getUserName()}</span>
               </h1>
             </div>
           </div>

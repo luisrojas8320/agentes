@@ -5,6 +5,7 @@ import { useChat } from '@/contexts/ChatContext';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Send, Paperclip } from 'lucide-react';
+import ToolsMenu from '@/components/ToolsMenu';
 
 export default function ChatInput() {
   const [input, setInput] = useState('');
@@ -34,9 +35,24 @@ export default function ChatInput() {
     }
   };
 
+  const handleToolSelect = (toolText: string) => {
+    setInput(toolText);
+    textareaRef.current?.focus();
+  };
+
   return (
     <div className="border-t border-border/30 bg-background">
       <div className="max-w-4xl mx-auto p-6">
+        {/* Barra superior con herramientas */}
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-foreground/60">AI Playground</span>
+          </div>
+          
+          <ToolsMenu onToolSelect={handleToolSelect} />
+        </div>
+
+        {/* Input principal */}
         <div className="relative">
           <input
             ref={fileInputRef}
@@ -52,7 +68,7 @@ export default function ChatInput() {
               size="icon"
               onClick={() => fileInputRef.current?.click()}
               disabled={isLoading}
-              className="btn-minimal h-10 w-10 rounded-full flex-shrink-0"
+              className="h-10 w-10 rounded-full flex-shrink-0 text-foreground/60 hover:text-foreground hover:bg-muted/50"
             >
               <Paperclip className="h-5 w-5" />
             </Button>
@@ -64,7 +80,7 @@ export default function ChatInput() {
               onKeyDown={handleKeyDown}
               placeholder="Introduce una petición para AI Playground"
               disabled={isLoading}
-              className="input-minimal min-h-[52px] max-h-[200px] resize-none flex-1 text-base py-3"
+              className="input-minimal min-h-[52px] max-h-[200px] resize-none flex-1 text-base py-3 text-foreground placeholder:text-foreground/50"
               rows={1}
             />
 
@@ -72,7 +88,8 @@ export default function ChatInput() {
               onClick={handleSubmit}
               disabled={!input.trim() || isLoading}
               size="icon"
-              className="btn-minimal h-10 w-10 rounded-full flex-shrink-0 disabled:opacity-30"
+              className="h-10 w-10 rounded-full flex-shrink-0 disabled:opacity-30 text-foreground/60 hover:text-foreground hover:bg-muted/50"
+              variant="ghost"
             >
               <Send className="h-5 w-5" />
             </Button>
