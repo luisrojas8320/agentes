@@ -116,7 +116,7 @@
   @apply hover:bg-muted/30 transition-colors;
 }
 
-/* Animaciones minimalistas */
+/* Animaciones minimalistas mejoradas */
 @keyframes fadeIn {
   from { opacity: 0; }
   to { opacity: 1; }
@@ -133,6 +133,45 @@
   }
 }
 
+@keyframes gentle-bounce {
+  0%, 20%, 50%, 80%, 100% {
+    transform: translateY(0);
+  }
+  40% {
+    transform: translateY(-4px);
+  }
+  60% {
+    transform: translateY(-2px);
+  }
+}
+
+@keyframes wave-pulse {
+  0%, 100% {
+    transform: scaleY(1);
+    opacity: 0.4;
+  }
+  50% {
+    transform: scaleY(1.5);
+    opacity: 0.8;
+  }
+}
+
+@keyframes soft-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes ping-soft {
+  75%, 100% {
+    transform: scale(1.1);
+    opacity: 0;
+  }
+}
+
 .animate-fade-in {
   animation: fadeIn 0.3s ease;
 }
@@ -141,9 +180,25 @@
   animation: slideUp 0.3s ease;
 }
 
-/* Remove todos los colores llamativos */
-.no-colors {
-  @apply text-muted-foreground;
+.animate-gentle-bounce {
+  animation: gentle-bounce 1.5s ease-in-out infinite;
+}
+
+.animate-wave-pulse {
+  animation: wave-pulse 1.2s ease-in-out infinite;
+}
+
+.animate-soft-spin {
+  animation: soft-spin 2s linear infinite;
+}
+
+.animate-ping-soft {
+  animation: ping-soft 1s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+/* Mejores animaciones para bounce con delays */
+.animate-bounce {
+  animation: gentle-bounce 1.4s ease-in-out infinite;
 }
 
 /* Estados de loading minimalistas */
@@ -167,4 +222,39 @@
 /* Input ultra limpio */
 .input-minimal {
   @apply bg-transparent border-0 focus:ring-0 focus:ring-offset-0 placeholder:text-muted-foreground/50;
+}
+
+/* Iconos con hover suave */
+.icon-hover {
+  transition: transform 0.2s ease, opacity 0.2s ease;
+}
+
+.icon-hover:hover {
+  transform: scale(1.05);
+}
+
+/* Estados de iconos para mensajes */
+.message-icon {
+  transition: all 0.3s ease;
+}
+
+.message-icon:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.1);
+}
+
+/* Animaciones para estados de actividad */
+.activity-indicator {
+  animation: ping-soft 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Mejoras responsive */
+@media (max-width: 768px) {
+  .mobile-friendly {
+    @apply text-base leading-relaxed;
+  }
+  
+  .message-minimal {
+    @apply max-w-[90%];
+  }
 }
