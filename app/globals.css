@@ -1,3 +1,4 @@
+@import url('https://fonts.googleapis.com/css2?family=Questrial:wght@400&display=swap');
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -10,19 +11,20 @@
     --card-foreground: 0 0% 98%;
     --popover: 0 0% 3.9%;
     --popover-foreground: 0 0% 98%;
-    --primary: 0 0% 98%;
-    --primary-foreground: 0 0% 3.9%;
+    --primary: 210 100% 56%;
+    --primary-foreground: 0 0% 98%;
     --secondary: 0 0% 14.9%;
     --secondary-foreground: 0 0% 98%;
     --muted: 0 0% 14.9%;
     --muted-foreground: 0 0% 63.9%;
-    --accent: 0 0% 14.9%;
+    --accent: 210 100% 56%;
     --accent-foreground: 0 0% 98%;
     --destructive: 0 62.8% 30.6%;
     --destructive-foreground: 0 0% 98%;
     --border: 0 0% 14.9%;
     --input: 0 0% 14.9%;
-    --ring: 0 0% 83.1%;
+    --ring: 210 100% 56%;
+    --radius: 0.75rem;
   }
 }
 
@@ -30,15 +32,33 @@
   * {
     @apply border-border;
   }
+  
   body {
     @apply bg-background text-foreground;
+    font-family: 'Questrial', system-ui, -apple-system, sans-serif;
+    font-feature-settings: "rlig" 1, "calt" 1;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Tipografía mejorada */
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Questrial', system-ui, -apple-system, sans-serif;
+    font-weight: 400;
+    letter-spacing: -0.02em;
+  }
+
+  /* Variables CSS personalizadas para animaciones */
+  :root {
+    --animation-duration: 0.2s;
+    --animation-timing: cubic-bezier(0.4, 0, 0.2, 1);
   }
 }
 
-/* Custom scrollbar */
+/* Scrollbar personalizada */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
 }
 
 ::-webkit-scrollbar-track {
@@ -46,36 +66,209 @@
 }
 
 ::-webkit-scrollbar-thumb {
-  background: hsl(0 0% 20%);
-  border-radius: 4px;
+  background: hsl(var(--border));
+  border-radius: 3px;
+  transition: background 0.2s ease;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: hsl(0 0% 30%);
+  background: hsl(var(--muted-foreground) / 0.5);
 }
 
-/* Message styles */
+/* Estilos para mensajes */
 .prose {
   color: inherit;
   max-width: none;
+  font-family: 'Questrial', system-ui, -apple-system, sans-serif;
 }
 
 .prose pre {
-  background-color: hsl(0 0% 10%);
-  border: 1px solid hsl(0 0% 20%);
-  border-radius: 6px;
-  padding: 12px;
+  background-color: hsl(var(--muted) / 0.5);
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius);
+  padding: 1rem;
   overflow-x: auto;
+  backdrop-filter: blur(8px);
 }
 
 .prose code {
-  background-color: hsl(0 0% 10%);
-  padding: 2px 4px;
-  border-radius: 4px;
+  background-color: hsl(var(--muted) / 0.5);
+  padding: 0.125rem 0.25rem;
+  border-radius: 0.25rem;
   font-size: 0.875em;
+  font-weight: 500;
 }
 
 .prose pre code {
   background-color: transparent;
   padding: 0;
+}
+
+/* Efectos de cristal y blur */
+.glass-effect {
+  background: rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* Animaciones personalizadas */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideInFromBottom {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulse-slow {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+@keyframes spin-slow {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-fade-in-up {
+  animation: fadeInUp var(--animation-duration) var(--animation-timing);
+}
+
+.animate-slide-in-bottom {
+  animation: slideInFromBottom 0.3s var(--animation-timing);
+}
+
+.animate-pulse-slow {
+  animation: pulse-slow 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.animate-spin-slow {
+  animation: spin-slow 3s linear infinite;
+}
+
+/* Estados de hover mejorados */
+.hover-lift {
+  transition: transform var(--animation-duration) var(--animation-timing);
+}
+
+.hover-lift:hover {
+  transform: translateY(-2px);
+}
+
+/* Estilos para botones */
+.btn-gradient {
+  background: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--accent)));
+  transition: all var(--animation-duration) var(--animation-timing);
+}
+
+.btn-gradient:hover {
+  background: linear-gradient(135deg, hsl(var(--primary) / 0.9), hsl(var(--accent) / 0.9));
+  transform: translateY(-1px);
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+}
+
+/* Mejoras para el tema oscuro */
+@media (prefers-color-scheme: dark) {
+  .glass-effect {
+    background: rgba(0, 0, 0, 0.2);
+    backdrop-filter: blur(16px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+}
+
+/* Efectos de focus mejorados */
+.focus-ring {
+  @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2;
+}
+
+/* Transiciones suaves para todos los elementos interactivos */
+button, 
+[role="button"],
+input,
+textarea,
+select {
+  transition: all var(--animation-duration) var(--animation-timing);
+}
+
+/* Mejoras de accesibilidad */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Estados de loading mejorados */
+.loading-skeleton {
+  background: linear-gradient(90deg, 
+    hsl(var(--muted)) 25%, 
+    hsl(var(--muted) / 0.5) 50%, 
+    hsl(var(--muted)) 75%
+  );
+  background-size: 200% 100%;
+  animation: loading-shimmer 1.5s infinite;
+}
+
+@keyframes loading-shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+/* Estilos para el chat */
+.message-bubble {
+  @apply rounded-2xl px-4 py-3 max-w-[85%] shadow-sm;
+  backdrop-filter: blur(8px);
+}
+
+.message-user {
+  @apply bg-primary text-primary-foreground ml-auto;
+}
+
+.message-assistant {
+  @apply bg-muted/30 text-foreground;
+}
+
+/* Mejoras para dropdown y tooltips */
+.dropdown-content {
+  @apply bg-card/95 backdrop-blur-md border border-border/50 shadow-xl;
+}
+
+/* Estilos responsivos mejorados */
+@media (max-width: 768px) {
+  .mobile-friendly {
+    @apply text-base leading-relaxed;
+  }
+  
+  .glass-effect {
+    backdrop-filter: blur(8px);
+  }
 }

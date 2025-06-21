@@ -2,7 +2,7 @@
 
 import { useChat } from '@/contexts/ChatContext';
 import { Button } from '@/components/ui/button';
-import { PlusCircle, MessageSquare, LogOut, Trash2, Settings, Zap, AlertCircle } from 'lucide-react';
+import { PlusCircle, MessageSquare, LogOut, Trash2, Settings, Zap, AlertCircle, Activity } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
 import { useState, useEffect } from 'react';
@@ -92,74 +92,107 @@ export default function Sidebar() {
   };
 
   return (
-    <div className="w-64 bg-secondary/30 border-r border-border p-4 flex flex-col h-full">
-      {/* Header */}
-      <div className="mb-4">
-        <h2 className="text-lg font-semibold mb-2">AI Playground</h2>
-        
-        {/* Estado MCP */}
-        <div className="mb-3 p-2 rounded-md bg-muted/50">
-          <div className="flex items-center gap-2 text-xs">
-            <Zap className="h-3 w-3" />
-            <span className="font-medium">MCP Status</span>
+    <div className="w-64 bg-card/30 backdrop-blur border-r border-border/50 flex flex-col h-full">
+      {/* Header con logo mejorado */}
+      <div className="p-6 border-b border-border/50">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="p-2 rounded-lg bg-gradient-to-br from-primary to-blue-600 shadow-md">
+            <Activity className="h-5 w-5 text-white" />
           </div>
+          <div>
+            <h2 className="text-lg font-semibold">AI Playground</h2>
+            <p className="text-xs text-muted-foreground">Powered by MCP</p>
+          </div>
+        </div>
+        
+        {/* Estado MCP mejorado */}
+        <div className="p-3 rounded-lg bg-muted/30 backdrop-blur space-y-2">
+          <div className="flex items-center gap-2 text-sm">
+            <Zap className="h-4 w-4" />
+            <span className="font-medium">Sistema</span>
+            <div className="ml-auto">
+              {loadingMCP ? (
+                <div className="h-2 w-2 rounded-full bg-muted-foreground animate-pulse" />
+              ) : (
+                <div className={cn(
+                  "h-2 w-2 rounded-full animate-pulse",
+                  mcpStatus?.initialized ? "bg-green-500" : "bg-red-500"
+                )} />
+              )}
+            </div>
+          </div>
+          
           {loadingMCP ? (
-            <div className="text-xs text-muted-foreground mt-1">Cargando...</div>
+            <div className="text-xs text-muted-foreground">Cargando estado...</div>
           ) : mcpStatus ? (
-            <div className="mt-1 space-y-1">
-              <div className="flex items-center gap-2">
+            <div className="space-y-1">
+              <div className="flex items-center justify-between text-xs">
+                <span>MCP:</span>
                 <Badge 
                   variant={mcpStatus.initialized ? "default" : "destructive"}
-                  className="text-xs px-1 py-0"
+                  className="text-[10px] px-1.5 py-0.5"
                 >
                   {mcpStatus.initialized ? "Activo" : "Inactivo"}
                 </Badge>
-                {mcpStatus.server_count > 0 && (
-                  <span className="text-xs text-muted-foreground">
-                    {mcpStatus.server_count} servidor{mcpStatus.server_count !== 1 ? 'es' : ''}
-                  </span>
-                )}
               </div>
+              
+              {mcpStatus.server_count > 0 && (
+                <div className="flex items-center justify-between text-xs">
+                  <span>Servidores:</span>
+                  <span className="text-muted-foreground">{mcpStatus.server_count}</span>
+                </div>
+              )}
+              
               {mcpStatus.available_tools && (
-                <div className="text-xs text-muted-foreground">
-                  {mcpStatus.available_tools} herramientas disponibles
+                <div className="flex items-center justify-between text-xs">
+                  <span>Herramientas:</span>
+                  <span className="text-muted-foreground">{mcpStatus.available_tools}</span>
                 </div>
               )}
             </div>
           ) : (
-            <div className="flex items-center gap-1 mt-1">
-              <AlertCircle className="h-3 w-3 text-destructive" />
-              <span className="text-xs text-destructive">Error de conexión</span>
+            <div className="flex items-center gap-1 text-xs text-destructive">
+              <AlertCircle className="h-3 w-3" />
+              <span>Error de conexión</span>
             </div>
           )}
         </div>
       </div>
 
-      <Button 
-        onClick={startNewChat} 
-        className="mb-4 w-full" 
-        disabled={isLoading}
-      >
-        <PlusCircle className="mr-2 h-4 w-4" />
-        Nueva conversación
-      </Button>
+      {/* Botón nuevo chat */}
+      <div className="p-4">
+        <Button 
+          onClick={startNewChat} 
+          className="w-full btn-gradient shadow-md hover:shadow-lg" 
+          disabled={isLoading}
+        >
+          <PlusCircle className="mr-2 h-4 w-4" />
+          Nueva Conversación
+        </Button>
+      </div>
       
-      <Separator className="mb-4" />
+      <Separator className="mx-4" />
       
-      {/* Lista de chats */}
-      <div className="flex-1 overflow-y-auto">
-        <div className="flex flex-col gap-1">
+      {/* Lista de chats con scroll mejorado */}
+      <div className="flex-1 overflow-y-auto px-4 py-2">
+        <div className="space-y-1">
           {chats.length === 0 ? (
-            <div className="text-center text-muted-foreground text-sm py-8">
-              No hay conversaciones aún
+            <div className="text-center py-8 space-y-2">
+              <MessageSquare className="h-8 w-8 text-muted-foreground mx-auto opacity-50" />
+              <div className="text-sm text-muted-foreground">
+                No hay conversaciones aún
+              </div>
+              <div className="text-xs text-muted-foreground/70">
+                Inicia una nueva conversación
+              </div>
             </div>
           ) : (
             chats.map((chat) => (
               <div 
                 key={chat.id}
                 className={cn(
-                  'group relative flex items-center rounded-md transition-colors',
-                  activeThreadId === chat.id && 'bg-secondary'
+                  'group relative flex items-center rounded-lg transition-all duration-200 hover:bg-muted/30',
+                  activeThreadId === chat.id && 'bg-primary/10 border border-primary/20'
                 )}
               >
                 <Button
@@ -167,29 +200,37 @@ export default function Sidebar() {
                   onClick={() => loadChat(chat.id)}
                   disabled={isLoading}
                   className={cn(
-                    'flex-1 justify-start text-left h-auto py-2 px-3 min-h-0',
-                    activeThreadId === chat.id && 'bg-secondary'
+                    'flex-1 justify-start text-left h-auto py-3 px-3 font-normal hover:bg-transparent',
+                    activeThreadId === chat.id && 'text-primary font-medium'
                   )}
                 >
-                  <MessageSquare className="mr-2 h-4 w-4 flex-shrink-0" />
-                  <span className="truncate text-sm">
-                    {chat.title || 'Chat sin título'}
-                  </span>
+                  <MessageSquare className="mr-3 h-4 w-4 flex-shrink-0 opacity-70" />
+                  <div className="flex-1 min-w-0">
+                    <div className="truncate text-sm">
+                      {chat.title || 'Chat sin título'}
+                    </div>
+                    <div className="text-xs text-muted-foreground mt-0.5">
+                      {new Date(chat.created_at).toLocaleDateString('es-ES', {
+                        day: 'numeric',
+                        month: 'short'
+                      })}
+                    </div>
+                  </div>
                 </Button>
                 
-                {/* Botón de eliminar */}
+                {/* Botón de eliminar mejorado */}
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
                     <Button
                       variant="ghost"
-                      size="sm"
-                      className="opacity-0 group-hover:opacity-100 transition-opacity h-8 w-8 p-0 absolute right-1"
+                      size="icon"
+                      className="opacity-0 group-hover:opacity-100 transition-opacity h-8 w-8 mr-2 hover:bg-destructive/20 hover:text-destructive"
                       onClick={(e) => e.stopPropagation()}
                     >
-                      <Trash2 className="h-3 w-3 text-destructive" />
+                      <Trash2 className="h-3 w-3" />
                     </Button>
                   </AlertDialogTrigger>
-                  <AlertDialogContent>
+                  <AlertDialogContent className="bg-card/95 backdrop-blur border-border/50">
                     <AlertDialogHeader>
                       <AlertDialogTitle>¿Eliminar conversación?</AlertDialogTitle>
                       <AlertDialogDescription>
@@ -214,19 +255,26 @@ export default function Sidebar() {
         </div>
       </div>
 
-      <Separator className="my-4" />
+      <Separator className="mx-4" />
 
-      {/* Footer con botones de acción */}
-      <div className="space-y-2">
-        <ToolConfigModal />
+      {/* Footer con botones de acción mejorados */}
+      <div className="p-4 space-y-2">
+        <ToolConfigModal 
+          trigger={
+            <Button variant="ghost" className="w-full justify-start hover:bg-muted/30">
+              <Settings className="mr-2 h-4 w-4" />
+              Configuración
+            </Button>
+          }
+        />
 
         <Button
           variant="ghost"
           onClick={signOut}
-          className="w-full justify-start text-destructive hover:text-destructive"
+          className="w-full justify-start text-destructive hover:text-destructive hover:bg-destructive/10"
         >
           <LogOut className="mr-2 h-4 w-4" />
-          Cerrar sesión
+          Cerrar Sesión
         </Button>
       </div>
     </div>

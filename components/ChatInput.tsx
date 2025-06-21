@@ -5,7 +5,15 @@ import { useChat } from '@/contexts/ChatContext';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
-import { Card } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  DropdownMenuSeparator,
+  DropdownMenuLabel,
+} from '@/components/ui/dropdown-menu';
 import { 
   Send, 
   Paperclip, 
@@ -15,7 +23,10 @@ import {
   FileText, 
   Image,
   AlertCircle,
-  CheckCircle
+  CheckCircle,
+  Settings,
+  ChevronDown,
+  Sparkles
 } from 'lucide-react';
 import { createClient } from '@/utils/supabase/client';
 import { cn } from '@/lib/utils';
@@ -28,7 +39,6 @@ interface MCPStatus {
 export default function ChatInput() {
   const [input, setInput] = useState('');
   const [mcpStatus, setMcpStatus] = useState<MCPStatus | null>(null);
-  const [showTools, setShowTools] = useState(false);
   const { sendMessage, isLoading, uploadFile } = useChat();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -80,205 +90,186 @@ export default function ChatInput() {
     }
   };
 
-  const availableTools = [
+  const quickActions = [
     {
-      name: 'Búsqueda en Internet',
-      icon: <Globe className="h-3 w-3" />,
-      active: true,
+      label: 'Buscar en Internet',
+      icon: <Globe className="h-4 w-4" />,
+      action: () => setInput("Busca información sobre "),
       description: 'Busca información actualizada'
     },
     {
-      name: 'Análisis de URLs',
-      icon: <Image className="h-3 w-3" />,
-      active: true,
+      label: 'Analizar URL',
+      icon: <Image className="h-4 w-4" />,
+      action: () => setInput("Analiza el contenido de esta URL: "),
       description: 'Extrae texto de imágenes y PDFs'
     },
     {
-      name: 'Documentos Personales',
-      icon: <FileText className="h-3 w-3" />,
-      active: true,
-      description: 'Busca en tus documentos subidos'
+      label: 'Buscar Documentos',
+      icon: <FileText className="h-4 w-4" />,
+      action: () => setInput("Busca en mis documentos información sobre "),
+      description: 'Busca en tus documentos'
     },
     {
-      name: 'Herramientas MCP',
-      icon: <Zap className="h-3 w-3" />,
-      active: mcpStatus?.initialized || false,
-      description: `${mcpStatus?.available_tools || 0} herramientas disponibles`
+      label: 'Estadísticas MCP',
+      icon: <Zap className="h-4 w-4" />,
+      action: () => setInput("Obtén estadísticas del sistema"),
+      description: 'Herramientas MCP disponibles',
+      disabled: !mcpStatus?.initialized
     }
   ];
 
   return (
-    <div className="border-t border-border bg-background">
-      {/* Indicador de herramientas disponibles */}
-      {showTools && (
-        <div className="p-4 border-b border-border">
-          <div className="max-w-3xl mx-auto">
-            <div className="flex items-center justify-between mb-3">
-              <h4 className="text-sm font-medium">Herramientas Disponibles</h4>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setShowTools(false)}
-                className="text-xs"
-              >
-                Ocultar
-              </Button>
-            </div>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-              {availableTools.map((tool, index) => (
-                <Card key={index} className={cn(
-                  "p-2 transition-colors",
-                  tool.active ? "bg-green-50 border-green-200 dark:bg-green-950 dark:border-green-800" : "bg-red-50 border-red-200 dark:bg-red-950 dark:border-red-800"
-                )}>
-                  <div className="flex items-start gap-2">
-                    <div className={cn(
-                      "mt-0.5",
-                      tool.active ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"
-                    )}>
-                      {tool.icon}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-1">
-                        <span className="text-xs font-medium truncate">{tool.name}</span>
-                        {tool.active ? (
-                          <CheckCircle className="h-3 w-3 text-green-600 dark:text-green-400 flex-shrink-0" />
-                        ) : (
-                          <AlertCircle className="h-3 w-3 text-red-600 dark:text-red-400 flex-shrink-0" />
-                        )}
-                      </div>
-                      <p className="text-xs text-muted-foreground truncate">
-                        {tool.description}
-                      </p>
-                    </div>
-                  </div>
-                </Card>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-
-      <div className="p-4">
-        <div className="max-w-3xl mx-auto">
-          {/* Barra de estado superior */}
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
+    <div className="border-t border-border/50 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+      <div className="p-6">
+        <div className="max-w-4xl mx-auto">
+          {/* Barra de estado minimalista */}
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
+                <div className="h-2 w-2 rounded-full bg-green-500 animate-pulse" />
+                <span className="text-sm text-muted-foreground font-medium">
+                  AI Playground
+                </span>
+              </div>
+              
+              <div className="h-4 w-px bg-border" />
+              
               <Badge 
                 variant={mcpStatus?.initialized ? "default" : "secondary"}
-                className="text-xs"
+                className="text-xs font-medium"
               >
                 <Zap className="h-3 w-3 mr-1" />
                 MCP {mcpStatus?.initialized ? "Activo" : "Inactivo"}
               </Badge>
+              
               {mcpStatus?.available_tools && (
                 <Badge variant="outline" className="text-xs">
                   {mcpStatus.available_tools} herramientas
                 </Badge>
               )}
             </div>
-            
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setShowTools(!showTools)}
-              className="text-xs"
-            >
-              {showTools ? 'Ocultar' : 'Ver'} herramientas
-            </Button>
+
+            {/* Menú de herramientas */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" className="gap-2">
+                  <Settings className="h-4 w-4" />
+                  Herramientas
+                  <ChevronDown className="h-3 w-3" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-64">
+                <DropdownMenuLabel className="font-semibold">
+                  Acciones Rápidas
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                
+                {quickActions.map((action, index) => (
+                  <DropdownMenuItem
+                    key={index}
+                    onClick={action.action}
+                    disabled={action.disabled}
+                    className="flex flex-col items-start gap-1 p-3 cursor-pointer"
+                  >
+                    <div className="flex items-center gap-2 w-full">
+                      <div className={cn(
+                        "flex-shrink-0",
+                        action.disabled ? "text-muted-foreground" : "text-primary"
+                      )}>
+                        {action.icon}
+                      </div>
+                      <span className="font-medium">{action.label}</span>
+                      {action.disabled && (
+                        <AlertCircle className="h-3 w-3 text-destructive ml-auto" />
+                      )}
+                    </div>
+                    <span className="text-xs text-muted-foreground">
+                      {action.description}
+                    </span>
+                  </DropdownMenuItem>
+                ))}
+                
+                <DropdownMenuSeparator />
+                <DropdownMenuItem className="p-3">
+                  <div className="flex items-center gap-2 w-full">
+                    <Sparkles className="h-4 w-4 text-primary" />
+                    <span className="font-medium">Ver todas las herramientas</span>
+                  </div>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
 
-          {/* Input principal */}
-          <div className="flex gap-2">
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".pdf"
-              onChange={handleFileUpload}
-              className="hidden"
-            />
-            
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={isLoading}
-              className="flex-shrink-0"
-            >
-              <Paperclip className="h-5 w-5" />
-            </Button>
-
-            <div className="flex-1 relative">
-              <Textarea
-                ref={textareaRef}
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder="Escribe un mensaje... (puedo buscar en internet, analizar URLs, revisar tus documentos y usar herramientas MCP)"
-                disabled={isLoading}
-                className="min-h-[60px] max-h-[200px] resize-none pr-12"
-              />
-              
-              {/* Contador de caracteres */}
-              <div className="absolute bottom-2 right-2 text-xs text-muted-foreground">
-                {input.length}
-              </div>
-            </div>
-
-            <Button
-              onClick={handleSubmit}
-              disabled={!input.trim() || isLoading}
-              size="icon"
-              className="flex-shrink-0"
-            >
-              {isLoading ? (
-                <Loader2 className="h-5 w-5 animate-spin" />
-              ) : (
-                <Send className="h-5 w-5" />
-              )}
-            </Button>
-          </div>
-
-          {/* Sugerencias rápidas */}
-          {!isLoading && input.length === 0 && (
-            <div className="mt-3 flex flex-wrap gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setInput("Busca información sobre inteligencia artificial en 2024")}
-                className="text-xs"
-              >
-                <Globe className="h-3 w-3 mr-1" />
-                Buscar en internet
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setInput("Analiza el contenido de esta URL: ")}
-                className="text-xs"
-              >
-                <Image className="h-3 w-3 mr-1" />
-                Analizar URL
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setInput("Busca en mis documentos información sobre ")}
-                className="text-xs"
-              >
-                <FileText className="h-3 w-3 mr-1" />
-                Buscar documentos
-              </Button>
-              {mcpStatus?.initialized && (
+          {/* Input principal con diseño mejorado */}
+          <Card className="shadow-lg border-0 bg-card/50 backdrop-blur">
+            <CardContent className="p-0">
+              <div className="flex gap-3 p-4">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".pdf"
+                  onChange={handleFileUpload}
+                  className="hidden"
+                />
+                
                 <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isLoading}
+                  className="flex-shrink-0 h-10 w-10 rounded-full hover:bg-primary/10"
+                >
+                  <Paperclip className="h-5 w-5" />
+                </Button>
+
+                <div className="flex-1 relative">
+                  <Textarea
+                    ref={textareaRef}
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    placeholder="Escribe tu mensaje aquí... Puedo buscar en internet, analizar URLs y más"
+                    disabled={isLoading}
+                    className="min-h-[60px] max-h-[200px] resize-none border-0 bg-transparent px-0 py-2 text-base focus-visible:ring-0 focus-visible:ring-offset-0 placeholder:text-muted-foreground/70"
+                  />
+                  
+                  {/* Contador de caracteres */}
+                  <div className="absolute bottom-2 right-2 text-xs text-muted-foreground/60">
+                    {input.length}
+                  </div>
+                </div>
+
+                <Button
+                  onClick={handleSubmit}
+                  disabled={!input.trim() || isLoading}
+                  size="icon"
+                  className="flex-shrink-0 h-10 w-10 rounded-full disabled:opacity-50"
+                >
+                  {isLoading ? (
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                  ) : (
+                    <Send className="h-5 w-5" />
+                  )}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Sugerencias mejoradas */}
+          {!isLoading && input.length === 0 && (
+            <div className="mt-4 flex flex-wrap gap-2 justify-center">
+              {quickActions.filter(action => !action.disabled).slice(0, 3).map((suggestion, index) => (
+                <Button
+                  key={index}
                   variant="outline"
                   size="sm"
-                  onClick={() => setInput("Obtén estadísticas del sistema")}
-                  className="text-xs"
+                  onClick={suggestion.action}
+                  className="text-xs font-medium bg-background/50 hover:bg-background border-border/50 hover:border-border"
                 >
-                  <Zap className="h-3 w-3 mr-1" />
-                  Usar MCP
+                  {suggestion.icon}
+                  <span className="ml-1">{suggestion.label}</span>
                 </Button>
-              )}
+              ))}
             </div>
           )}
         </div>
