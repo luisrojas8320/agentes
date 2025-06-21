@@ -1,3 +1,7 @@
+// ================================
+// 2. ARREGLAR ChatInput.tsx - Placeholder y Espaciado
+// ================================
+
 'use client';
 
 import { useState, useRef, KeyboardEvent } from 'react';
@@ -43,21 +47,31 @@ export default function ChatInput() {
     textareaRef.current?.focus();
   };
 
+  // ARREGLO: Placeholder más corto para mobile
+  const getPlaceholder = () => {
+    if (isMobile) {
+      return "Escribe tu pregunta...";
+    }
+    return "Introduce una petición para AI Playground";
+  };
+
   return (
     <div className="border-t border-border/30 bg-background">
       <div className={cn(
         "mx-auto",
-        isMobile ? "max-w-full p-3" : "max-w-4xl p-6"
+        // ARREGLO: Menos padding en mobile
+        isMobile ? "max-w-full p-4" : "max-w-4xl p-6"
       )}>
-        {/* Barra superior con herramientas */}
+        {/* ARREGLO: Barra superior más compacta en mobile */}
         <div className={cn(
           "flex items-center justify-between",
           isMobile ? "mb-3" : "mb-4"
         )}>
           <div className="flex items-center gap-2">
+            {/* ARREGLO: Ocultar texto "AI Playground" en mobile muy pequeño */}
             <span className={cn(
               "text-foreground/60",
-              isMobile ? "text-xs" : "text-xs"
+              isMobile ? "text-xs hidden xs:block" : "text-xs"
             )}>
               AI Playground
             </span>
@@ -66,7 +80,7 @@ export default function ChatInput() {
           <ToolsMenu onToolSelect={handleToolSelect} />
         </div>
 
-        {/* Input principal */}
+        {/* ARREGLO: Input optimizado para mobile */}
         <div className="relative">
           <input
             ref={fileInputRef}
@@ -78,7 +92,8 @@ export default function ChatInput() {
           
           <div className={cn(
             "flex items-end bg-muted/30 rounded-3xl",
-            isMobile ? "gap-2 p-1.5" : "gap-3 p-2"
+            // ARREGLO: Padding más pequeño en mobile
+            isMobile ? "gap-2 p-2" : "gap-3 p-2"
           )}>
             <Button
               variant="ghost"
@@ -87,10 +102,11 @@ export default function ChatInput() {
               disabled={isLoading}
               className={cn(
                 "flex-shrink-0 rounded-full text-foreground/60 hover:text-foreground hover:bg-muted/50",
-                isMobile ? "h-9 w-9 mobile-button" : "h-10 w-10"
+                // ARREGLO: Botón más pequeño en mobile
+                isMobile ? "h-8 w-8 mobile-button" : "h-10 w-10"
               )}
             >
-              <Paperclip className={isMobile ? "h-4 w-4" : "h-5 w-5"} />
+              <Paperclip className={isMobile ? "h-3.5 w-3.5" : "h-5 w-5"} />
             </Button>
 
             <Textarea
@@ -98,18 +114,18 @@ export default function ChatInput() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Introduce una petición para AI Playground"
+              placeholder={getPlaceholder()} // ARREGLO: Placeholder dinámico
               disabled={isLoading}
               className={cn(
                 "input-minimal resize-none flex-1 text-foreground placeholder:text-foreground/50 border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0",
                 isMobile 
-                  ? "min-h-[48px] max-h-[120px] py-3 px-2 text-base mobile-input leading-relaxed" 
+                  ? "min-h-[44px] max-h-[100px] py-2.5 px-3 text-base mobile-input leading-relaxed" 
                   : "min-h-[52px] max-h-[200px] py-3 text-base"
               )}
               rows={1}
               style={{
                 resize: 'none',
-                lineHeight: isMobile ? '1.5' : '1.4'
+                lineHeight: isMobile ? '1.4' : '1.4'
               }}
             />
 
@@ -119,29 +135,30 @@ export default function ChatInput() {
               size="icon"
               className={cn(
                 "flex-shrink-0 rounded-full disabled:opacity-30 text-foreground/60 hover:text-foreground hover:bg-muted/50",
-                isMobile ? "h-9 w-9 mobile-button" : "h-10 w-10"
+                // ARREGLO: Botón más pequeño en mobile
+                isMobile ? "h-8 w-8 mobile-button" : "h-10 w-10"
               )}
               variant="ghost"
             >
-              <Send className={isMobile ? "h-4 w-4" : "h-5 w-5"} />
+              <Send className={isMobile ? "h-3.5 w-3.5" : "h-5 w-5"} />
             </Button>
           </div>
           
-          {/* Indicador de carga para mobile */}
+          {/* ARREGLO: Indicador de carga más sutil en mobile */}
           {isLoading && isMobile && (
-            <div className="absolute top-full left-0 right-0 flex justify-center pt-2">
-              <div className="text-xs text-foreground/60 animate-pulse">
-                Enviando...
+            <div className="absolute top-full left-0 right-0 flex justify-center pt-1">
+              <div className="text-xs text-foreground/50 animate-pulse">
+                •••
               </div>
             </div>
           )}
         </div>
 
-        {/* Información adicional para mobile */}
-        {isMobile && (
+        {/* ARREGLO: Información más corta y solo cuando es necesario */}
+        {isMobile && !input && (
           <div className="mt-2 text-center">
-            <span className="text-xs text-foreground/50">
-              Toca Enter para enviar, Shift+Enter para nueva línea
+            <span className="text-xs text-foreground/40">
+              Enter para enviar
             </span>
           </div>
         )}

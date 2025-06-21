@@ -470,3 +470,152 @@ span, p, div, button {
 .flex-responsive {
   @apply flex flex-col sm:flex-row gap-3 sm:gap-4 lg:gap-6;
 }
+/* Breakpoint extra pequeño para móviles muy pequeños */
+@media (max-width: 375px) {
+  .xs\:block {
+    display: block;
+  }
+  
+  .xs\:hidden {
+    display: none;
+  }
+  
+  /* Texto aún más pequeño en pantallas muy pequeñas */
+  .message-minimal {
+    @apply px-2 py-2 text-sm;
+  }
+  
+  /* Input más compacto */
+  .mobile-input {
+    @apply min-h-[40px] text-sm px-2;
+  }
+  
+  /* Botones más pequeños */
+  .mobile-button {
+    @apply min-h-[36px] min-w-[36px];
+  }
+}
+
+/* Mejoras específicas para el chat en mobile */
+@media (max-width: 640px) {
+  /* Asegurar que la pantalla de bienvenida no se solape */
+  .chat-container {
+    @apply pt-6 pb-4;
+  }
+  
+  /* Mejor espaciado para los mensajes */
+  .message-minimal {
+    @apply max-w-[95%];
+  }
+  
+  /* Placeholder más corto */
+  .mobile-input::placeholder {
+    @apply text-sm;
+  }
+  
+  /* Mejor altura mínima para el área de chat */
+  .chat-messages {
+    min-height: 40vh;
+  }
+  
+  /* Evitar que el input se vea cortado */
+  .input-area {
+    @apply pb-safe-bottom;
+  }
+  
+  /* Safe area para iPhone con notch */
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
+
+/* Mejoras para el scroll en móviles */
+@media (max-width: 768px) {
+  /* Scroll más suave en iOS */
+  .mobile-scroll {
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+  }
+  
+  /* Evitar zoom en inputs en iOS */
+  input[type="text"],
+  input[type="email"],
+  input[type="password"],
+  textarea {
+    font-size: 16px !important;
+  }
+  
+  /* Mejor legibilidad en móviles */
+  .prose {
+    @apply text-sm leading-relaxed;
+  }
+  
+  .prose p {
+    @apply mb-2;
+  }
+  
+  .prose ul, .prose ol {
+    @apply mb-2 ml-3;
+  }
+}
+
+/* Animaciones más suaves en móviles */
+@media (max-width: 640px) {
+  .animate-slide-up {
+    animation-duration: 0.2s;
+  }
+  
+  .animate-fade-in {
+    animation-duration: 0.2s;
+  }
+}
+
+/* Utilidades responsive adicionales */
+.mobile-text-xs {
+  @apply text-xs;
+}
+
+@media (min-width: 640px) {
+  .mobile-text-xs {
+    @apply text-sm;
+  }
+}
+
+.mobile-p-2 {
+  @apply p-2;
+}
+
+@media (min-width: 640px) {
+  .mobile-p-2 {
+    @apply p-4;
+  }
+}
+
+/* Safe area para iPhone */
+.pb-safe-bottom {
+  padding-bottom: max(1rem, env(safe-area-inset-bottom));
+}
+
+.pt-safe-top {
+  padding-top: max(1rem, env(safe-area-inset-top));
+}
+
+/* Mejoras para textarea en mobile */
+@media (max-width: 640px) {
+  .mobile-textarea {
+    @apply text-base; /* Evita zoom en iOS */
+    line-height: 1.4;
+    max-height: 80px; /* Límite más bajo en mobile */
+  }
+}
+
+/* Estados de loading mejorados para mobile */
+@media (max-width: 640px) {
+  .loading-dots > div {
+    @apply w-1.5 h-1.5;
+  }
+  
+  .loading-minimal {
+    @apply text-xs;
+  }
+}
