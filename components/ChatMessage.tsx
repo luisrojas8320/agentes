@@ -1,6 +1,5 @@
 'use client';
 
-import { Bot, User } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { cn } from '@/lib/utils';
 
@@ -20,9 +19,9 @@ export default function ChatMessage({ message, isStreaming = false, isComplete =
     <div className={cn('flex gap-3', isUser && 'flex-row-reverse')}>
       <div className={cn(
         'flex h-8 w-8 shrink-0 select-none items-center justify-center rounded-full',
-        isUser ? 'bg-primary text-primary-foreground' : 'bg-secondary'
+        isUser ? 'bg-foreground text-background' : 'bg-muted'
       )}>
-        {isUser ? <User className="h-4 w-4" /> : <Bot className="h-4 w-4" />}
+        <div className="w-4 h-4 rounded-full bg-current opacity-60" />
       </div>
       
       <div className={cn(
@@ -30,22 +29,22 @@ export default function ChatMessage({ message, isStreaming = false, isComplete =
         isUser && 'text-right'
       )}>
         <div className={cn(
-          'inline-block text-left max-w-[80%]',
+          'inline-block text-left max-w-[85%]',
           isUser 
-            ? 'bg-primary text-primary-foreground rounded-lg px-4 py-2 ml-auto' 
-            : 'prose prose-invert'
+            ? 'message-user-minimal' 
+            : 'message-assistant-minimal'
         )}>
           {isUser ? (
-            <p className="mb-0 text-sm">{message.content}</p>
+            <p className="mb-0 text-sm leading-relaxed">{message.content}</p>
           ) : (
             <div className="relative">
-              <div className="prose prose-invert max-w-none text-sm">
+              <div className="prose prose-invert max-w-none text-sm leading-relaxed">
                 <ReactMarkdown>
                   {message.content}
                 </ReactMarkdown>
               </div>
               {isStreaming && !isComplete && (
-                <span className="inline-block w-2 h-4 bg-primary ml-1 animate-pulse" />
+                <span className="inline-block w-2 h-4 bg-muted-foreground/50 ml-1 animate-pulse" />
               )}
             </div>
           )}

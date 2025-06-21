@@ -5,26 +5,27 @@
 
 @layer base {
   :root {
-    --background: 0 0% 3.9%;
-    --foreground: 0 0% 98%;
-    --card: 0 0% 3.9%;
-    --card-foreground: 0 0% 98%;
-    --popover: 0 0% 3.9%;
-    --popover-foreground: 0 0% 98%;
-    --primary: 210 100% 56%;
-    --primary-foreground: 0 0% 98%;
-    --secondary: 0 0% 14.9%;
-    --secondary-foreground: 0 0% 98%;
-    --muted: 0 0% 14.9%;
-    --muted-foreground: 0 0% 63.9%;
-    --accent: 210 100% 56%;
-    --accent-foreground: 0 0% 98%;
-    --destructive: 0 62.8% 30.6%;
+    /* Paleta minimalista inspirada en Gemini */
+    --background: 210 11% 15%; /* Gris oscuro como Gemini */
+    --foreground: 0 0% 85%;
+    --card: 210 11% 18%;
+    --card-foreground: 0 0% 85%;
+    --popover: 210 11% 18%;
+    --popover-foreground: 0 0% 85%;
+    --primary: 0 0% 85%; /* Sin colores llamativos */
+    --primary-foreground: 210 11% 15%;
+    --secondary: 210 11% 22%;
+    --secondary-foreground: 0 0% 85%;
+    --muted: 210 11% 20%;
+    --muted-foreground: 0 0% 55%;
+    --accent: 210 11% 25%;
+    --accent-foreground: 0 0% 85%;
+    --destructive: 0 50% 45%;
     --destructive-foreground: 0 0% 98%;
-    --border: 0 0% 14.9%;
-    --input: 0 0% 14.9%;
-    --ring: 210 100% 56%;
-    --radius: 0.75rem;
+    --border: 210 11% 25%;
+    --input: 210 11% 22%;
+    --ring: 0 0% 60%;
+    --radius: 0.5rem;
   }
 }
 
@@ -41,24 +42,18 @@
     -moz-osx-font-smoothing: grayscale;
   }
 
-  /* Tipografía mejorada */
+  /* Tipografía ultra limpia */
   h1, h2, h3, h4, h5, h6 {
     font-family: 'Questrial', system-ui, -apple-system, sans-serif;
     font-weight: 400;
-    letter-spacing: -0.02em;
-  }
-
-  /* Variables CSS personalizadas para animaciones */
-  :root {
-    --animation-duration: 0.2s;
-    --animation-timing: cubic-bezier(0.4, 0, 0.2, 1);
+    letter-spacing: -0.01em;
   }
 }
 
-/* Scrollbar personalizada */
+/* Scrollbar ultra minimalista */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 4px;
+  height: 4px;
 }
 
 ::-webkit-scrollbar-track {
@@ -66,16 +61,15 @@
 }
 
 ::-webkit-scrollbar-thumb {
-  background: hsl(var(--border));
-  border-radius: 3px;
-  transition: background 0.2s ease;
+  background: hsl(var(--muted-foreground) / 0.3);
+  border-radius: 2px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
   background: hsl(var(--muted-foreground) / 0.5);
 }
 
-/* Estilos para mensajes */
+/* Mensajes ultra limpios */
 .prose {
   color: inherit;
   max-width: none;
@@ -83,20 +77,18 @@
 }
 
 .prose pre {
-  background-color: hsl(var(--muted) / 0.5);
+  background-color: hsl(var(--muted));
   border: 1px solid hsl(var(--border));
   border-radius: var(--radius);
   padding: 1rem;
   overflow-x: auto;
-  backdrop-filter: blur(8px);
 }
 
 .prose code {
-  background-color: hsl(var(--muted) / 0.5);
+  background-color: hsl(var(--muted));
   padding: 0.125rem 0.25rem;
   border-radius: 0.25rem;
   font-size: 0.875em;
-  font-weight: 500;
 }
 
 .prose pre code {
@@ -104,171 +96,75 @@
   padding: 0;
 }
 
-/* Efectos de cristal y blur */
-.glass-effect {
-  background: rgba(255, 255, 255, 0.05);
-  backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+/* Transiciones ultra suaves */
+* {
+  transition: all 0.15s ease;
 }
 
-/* Animaciones personalizadas */
-@keyframes fadeInUp {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+/* Botones minimalistas */
+.btn-minimal {
+  @apply bg-transparent border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/50;
 }
 
-@keyframes slideInFromBottom {
-  from {
-    opacity: 0;
-    transform: translateY(20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+/* Estados de focus minimalistas */
+.focus-minimal {
+  @apply focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-offset-0;
 }
 
-@keyframes pulse-slow {
-  0%, 100% {
-    opacity: 1;
+/* Efectos hover ultra sutiles */
+.hover-minimal {
+  @apply hover:bg-muted/30 transition-colors;
+}
+
+/* Animaciones minimalistas */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { 
+    opacity: 0; 
+    transform: translateY(10px); 
   }
-  50% {
-    opacity: 0.5;
+  to { 
+    opacity: 1; 
+    transform: translateY(0); 
   }
 }
 
-@keyframes spin-slow {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
+.animate-fade-in {
+  animation: fadeIn 0.3s ease;
 }
 
-.animate-fade-in-up {
-  animation: fadeInUp var(--animation-duration) var(--animation-timing);
+.animate-slide-up {
+  animation: slideUp 0.3s ease;
 }
 
-.animate-slide-in-bottom {
-  animation: slideInFromBottom 0.3s var(--animation-timing);
+/* Remove todos los colores llamativos */
+.no-colors {
+  @apply text-muted-foreground;
 }
 
-.animate-pulse-slow {
-  animation: pulse-slow 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+/* Estados de loading minimalistas */
+.loading-minimal {
+  @apply animate-pulse bg-muted/50;
 }
 
-.animate-spin-slow {
-  animation: spin-slow 3s linear infinite;
+/* Mensajes de chat ultra limpios */
+.message-minimal {
+  @apply rounded-xl px-4 py-3 max-w-[85%];
 }
 
-/* Estados de hover mejorados */
-.hover-lift {
-  transition: transform var(--animation-duration) var(--animation-timing);
+.message-user-minimal {
+  @apply bg-muted text-foreground ml-auto;
 }
 
-.hover-lift:hover {
-  transform: translateY(-2px);
+.message-assistant-minimal {
+  @apply bg-muted/50 text-foreground;
 }
 
-/* Estilos para botones */
-.btn-gradient {
-  background: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--accent)));
-  transition: all var(--animation-duration) var(--animation-timing);
-}
-
-.btn-gradient:hover {
-  background: linear-gradient(135deg, hsl(var(--primary) / 0.9), hsl(var(--accent) / 0.9));
-  transform: translateY(-1px);
-  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
-}
-
-/* Mejoras para el tema oscuro */
-@media (prefers-color-scheme: dark) {
-  .glass-effect {
-    background: rgba(0, 0, 0, 0.2);
-    backdrop-filter: blur(16px);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-  }
-}
-
-/* Efectos de focus mejorados */
-.focus-ring {
-  @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2;
-}
-
-/* Transiciones suaves para todos los elementos interactivos */
-button, 
-[role="button"],
-input,
-textarea,
-select {
-  transition: all var(--animation-duration) var(--animation-timing);
-}
-
-/* Mejoras de accesibilidad */
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-  }
-}
-
-/* Estados de loading mejorados */
-.loading-skeleton {
-  background: linear-gradient(90deg, 
-    hsl(var(--muted)) 25%, 
-    hsl(var(--muted) / 0.5) 50%, 
-    hsl(var(--muted)) 75%
-  );
-  background-size: 200% 100%;
-  animation: loading-shimmer 1.5s infinite;
-}
-
-@keyframes loading-shimmer {
-  0% {
-    background-position: -200% 0;
-  }
-  100% {
-    background-position: 200% 0;
-  }
-}
-
-/* Estilos para el chat */
-.message-bubble {
-  @apply rounded-2xl px-4 py-3 max-w-[85%] shadow-sm;
-  backdrop-filter: blur(8px);
-}
-
-.message-user {
-  @apply bg-primary text-primary-foreground ml-auto;
-}
-
-.message-assistant {
-  @apply bg-muted/30 text-foreground;
-}
-
-/* Mejoras para dropdown y tooltips */
-.dropdown-content {
-  @apply bg-card/95 backdrop-blur-md border border-border/50 shadow-xl;
-}
-
-/* Estilos responsivos mejorados */
-@media (max-width: 768px) {
-  .mobile-friendly {
-    @apply text-base leading-relaxed;
-  }
-  
-  .glass-effect {
-    backdrop-filter: blur(8px);
-  }
+/* Input ultra limpio */
+.input-minimal {
+  @apply bg-transparent border-0 focus:ring-0 focus:ring-offset-0 placeholder:text-muted-foreground/50;
 }

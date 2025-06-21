@@ -98,10 +98,18 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const startNewChat = () => {
+  // Función startNewChat corregida
+  const startNewChat = useCallback(() => {
+    // Limpiar el estado actual
     setActiveThreadId(null);
     setMessages([]);
-  };
+    setIsLoading(false);
+    
+    // Recargar la lista de chats para refrescar
+    if (user) {
+      loadUserChats();
+    }
+  }, [user, loadUserChats]);
 
   const deleteChat = (chatId: string) => {
     setChats(prev => prev.filter(chat => chat.id !== chatId));
