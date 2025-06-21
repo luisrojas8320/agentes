@@ -1,3 +1,7 @@
+// ================================
+// 4. ARREGLAR ChatInterface.tsx - Layout General Mobile
+// ================================
+
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -34,21 +38,22 @@ export default function ChatInterface() {
 
   return (
     <div className="flex h-screen bg-background overflow-hidden">
-      {/* Mobile menu button */}
+      {/* ARREGLO: Mobile menu button con mejor posición */}
       <Button
         variant="ghost"
         size="icon"
         className={`
-          md:hidden absolute top-3 left-3 z-50 mobile-button
+          md:hidden absolute z-50 mobile-button transition-colors
           ${sidebarOpen ? 'text-foreground' : 'text-foreground/80'}
-          hover:text-foreground hover:bg-muted/30 transition-colors
+          hover:text-foreground hover:bg-muted/30
+          ${isMobile ? 'top-4 left-4' : 'top-3 left-3'}
         `}
         onClick={() => setSidebarOpen(!sidebarOpen)}
       >
         {sidebarOpen ? (
-          <X className="h-5 w-5" />
+          <X className="h-4 w-4" />
         ) : (
-          <Menu className="h-5 w-5" />
+          <Menu className="h-4 w-4" />
         )}
         <span className="sr-only">
           {sidebarOpen ? 'Cerrar menú' : 'Abrir menú'}
@@ -73,18 +78,25 @@ export default function ChatInterface() {
         />
       )}
 
-      {/* Main chat area */}
+      {/* ARREGLO: Main chat area con safe areas */}
       <div className={`
         flex-1 flex flex-col min-w-0
         ${isMobile && sidebarOpen ? 'pointer-events-none' : ''}
+        ${isMobile ? 'pt-safe-top' : ''}
       `}>
-        {/* Message area with proper mobile spacing */}
-        <div className="flex-1 overflow-hidden">
+        {/* ARREGLO: Message area con mejor altura */}
+        <div className={`
+          flex-1 overflow-hidden mobile-scroll
+          ${isMobile ? 'min-h-0' : ''}
+        `}>
           <MessageList />
         </div>
         
-        {/* Input area with mobile-optimized spacing */}
-        <div className="flex-shrink-0">
+        {/* ARREGLO: Input area con safe area bottom */}
+        <div className={`
+          flex-shrink-0 input-area
+          ${isMobile ? 'pb-safe-bottom' : ''}
+        `}>
           <ChatInput />
         </div>
       </div>
