@@ -42,11 +42,24 @@
     -moz-osx-font-smoothing: grayscale;
   }
 
-  /* Tipografía ultra limpia */
+  /* Tipografía ultra limpia - RESPONSIVE */
   h1, h2, h3, h4, h5, h6 {
     font-family: 'Questrial', system-ui, -apple-system, sans-serif;
     font-weight: 400;
     letter-spacing: -0.01em;
+  }
+
+  /* Responsive headings */
+  h1 {
+    @apply text-3xl sm:text-4xl lg:text-5xl;
+  }
+  
+  h2 {
+    @apply text-2xl sm:text-3xl lg:text-4xl;
+  }
+  
+  h3 {
+    @apply text-xl sm:text-2xl lg:text-3xl;
   }
 }
 
@@ -69,7 +82,7 @@
   background: hsl(var(--foreground) / 0.5);
 }
 
-/* Mensajes ultra limpios */
+/* Mensajes ultra limpios - RESPONSIVE */
 .prose {
   color: inherit;
   max-width: none;
@@ -80,20 +93,40 @@
   background-color: hsl(var(--muted));
   border: 1px solid hsl(var(--border));
   border-radius: var(--radius);
-  padding: 1rem;
+  padding: 0.75rem 1rem;
   overflow-x: auto;
+  @apply text-sm;
 }
 
 .prose code {
   background-color: hsl(var(--muted));
   padding: 0.125rem 0.25rem;
   border-radius: 0.25rem;
-  font-size: 0.875em;
+  @apply text-xs sm:text-sm;
 }
 
 .prose pre code {
   background-color: transparent;
   padding: 0;
+}
+
+/* Responsive prose text sizes */
+@media (max-width: 640px) {
+  .prose {
+    @apply text-sm leading-relaxed;
+  }
+  
+  .prose p {
+    @apply mb-3;
+  }
+  
+  .prose ul, .prose ol {
+    @apply mb-3 ml-4;
+  }
+  
+  .prose li {
+    @apply mb-1;
+  }
 }
 
 /* Transiciones ultra suaves */
@@ -111,7 +144,137 @@
   @apply hover:bg-muted/30 transition-colors;
 }
 
-/* Animaciones minimalistas mejoradas */
+/* Mensajes de chat ultra limpios - RESPONSIVE */
+.message-minimal {
+  @apply rounded-xl px-3 py-2 sm:px-4 sm:py-3 max-w-[90%] sm:max-w-[85%];
+}
+
+.message-user-minimal {
+  @apply bg-muted text-foreground ml-auto;
+}
+
+.message-assistant-minimal {
+  @apply bg-muted/50 text-foreground;
+}
+
+/* Input ultra limpio - RESPONSIVE */
+.input-minimal {
+  @apply bg-transparent border-0 focus:ring-0 focus:ring-offset-0 placeholder:text-muted-foreground/50 text-sm sm:text-base;
+}
+
+/* Iconos con hover suave */
+.icon-hover {
+  transition: transform 0.2s ease, opacity 0.2s ease;
+}
+
+.icon-hover:hover {
+  transform: scale(1.05);
+}
+
+/* Estados de iconos para mensajes */
+.message-icon {
+  transition: all 0.3s ease;
+}
+
+.message-icon:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.1);
+}
+
+/* Animaciones para estados de actividad */
+.activity-indicator {
+  animation: ping-soft 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Mejoras responsive */
+@media (max-width: 768px) {
+  .mobile-friendly {
+    @apply text-sm leading-relaxed;
+  }
+  
+  .message-minimal {
+    @apply max-w-[95%];
+  }
+  
+  /* Mejores espacios en mobile */
+  .chat-container {
+    @apply px-3 py-4;
+  }
+  
+  /* Input más grande en mobile */
+  .mobile-input {
+    @apply min-h-[48px] text-base;
+  }
+  
+  /* Botones más grandes en mobile */
+  .mobile-button {
+    @apply min-h-[44px] min-w-[44px];
+  }
+}
+
+@media (max-width: 480px) {
+  .message-minimal {
+    @apply max-w-[98%] px-2 py-2;
+  }
+  
+  .prose {
+    @apply text-xs leading-relaxed;
+  }
+  
+  /* Espacios más pequeños en pantallas muy pequeñas */
+  .chat-container {
+    @apply px-2 py-3;
+  }
+}
+
+/* Sidebar responsive */
+@media (max-width: 768px) {
+  .sidebar-mobile {
+    @apply fixed inset-y-0 left-0 z-50 w-64 transform transition-transform duration-300 ease-in-out;
+  }
+  
+  .sidebar-mobile.closed {
+    @apply -translate-x-full;
+  }
+  
+  .sidebar-mobile.open {
+    @apply translate-x-0;
+  }
+}
+
+/* Texto más claro globalmente */
+.text-lighter {
+  color: hsl(var(--foreground) / 0.9);
+}
+
+/* Mejoras para el contraste */
+button, .btn {
+  color: hsl(var(--foreground) / 0.8);
+}
+
+button:hover, .btn:hover {
+  color: hsl(var(--foreground) / 1);
+}
+
+/* Estilos específicos para sidebar */
+.sidebar-button {
+  @apply text-foreground/80 hover:text-foreground;
+}
+
+.sidebar-text {
+  @apply text-foreground/70;
+}
+
+/* Colores más blancos para elementos específicos */
+.chat-title {
+  @apply text-foreground/85;
+}
+
+.status-text {
+  @apply text-foreground/75;
+}
+
+/* Animaciones responsivas */
 @keyframes fadeIn {
   from { opacity: 0; }
   to { opacity: 1; }
@@ -216,118 +379,6 @@
   @apply animate-pulse bg-muted/50;
 }
 
-/* Mensajes de chat ultra limpios */
-.message-minimal {
-  @apply rounded-xl px-4 py-3 max-w-[85%];
-}
-
-.message-user-minimal {
-  @apply bg-muted text-foreground ml-auto;
-}
-
-.message-assistant-minimal {
-  @apply bg-muted/50 text-foreground;
-}
-
-/* Input ultra limpio */
-.input-minimal {
-  @apply bg-transparent border-0 focus:ring-0 focus:ring-offset-0 placeholder:text-muted-foreground/50;
-}
-
-/* Iconos con hover suave */
-.icon-hover {
-  transition: transform 0.2s ease, opacity 0.2s ease;
-}
-
-.icon-hover:hover {
-  transform: scale(1.05);
-}
-
-/* Estados de iconos para mensajes */
-.message-icon {
-  transition: all 0.3s ease;
-}
-
-.message-icon:hover {
-  transform: translateY(-1px);
-  filter: brightness(1.1);
-}
-
-/* Animaciones para estados de actividad */
-.activity-indicator {
-  animation: ping-soft 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-}
-
-/* Mejoras responsive */
-@media (max-width: 768px) {
-  .mobile-friendly {
-    @apply text-base leading-relaxed;
-  }
-  
-  .message-minimal {
-    @apply max-w-[90%];
-  }
-}
-
-/* Texto más claro globalmente */
-.text-lighter {
-  color: hsl(var(--foreground) / 0.9);
-}
-
-/* Mejoras para el contraste */
-button, .btn {
-  color: hsl(var(--foreground) / 0.8);
-}
-
-button:hover, .btn:hover {
-  color: hsl(var(--foreground) / 1);
-}
-
-/* Estilos específicos para sidebar */
-.sidebar-button {
-  @apply text-foreground/80 hover:text-foreground;
-}
-
-.sidebar-text {
-  @apply text-foreground/70;
-}
-
-/* Colores más blancos para elementos específicos */
-.chat-title {
-  @apply text-foreground/85;
-}
-
-.status-text {
-  @apply text-foreground/75;
-}
-
-/* Animaciones adicionales para el icono de carga */
-@keyframes pulse-ring {
-  0% {
-    transform: scale(0.33);
-  }
-  80%, 100% {
-    opacity: 0;
-  }
-}
-
-@keyframes orbit {
-  0% {
-    transform: rotate(0deg) translateX(8px) rotate(0deg);
-  }
-  100% {
-    transform: rotate(360deg) translateX(8px) rotate(-360deg);
-  }
-}
-
-.animate-pulse-ring {
-  animation: pulse-ring 1.25s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
-}
-
-.animate-orbit {
-  animation: orbit 3s linear infinite;
-}
-
 /* Mejoras de accesibilidad con colores más claros */
 @media (prefers-reduced-motion: reduce) {
   *,
@@ -387,4 +438,35 @@ button:hover, .btn:hover {
 /* Transiciones suaves para todos los textos */
 span, p, div, button {
   transition: color 0.15s ease;
+}
+
+/* Responsive utilities específicas */
+.container-responsive {
+  @apply w-full max-w-4xl mx-auto px-3 sm:px-4 lg:px-6;
+}
+
+.spacing-responsive {
+  @apply space-y-3 sm:space-y-4 lg:space-y-6;
+}
+
+.text-responsive {
+  @apply text-sm sm:text-base lg:text-lg;
+}
+
+.padding-responsive {
+  @apply p-3 sm:p-4 lg:p-6;
+}
+
+.margin-responsive {
+  @apply m-3 sm:m-4 lg:m-6;
+}
+
+/* Grid responsive utilities */
+.grid-responsive {
+  @apply grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 lg:gap-6;
+}
+
+/* Flex responsive utilities */
+.flex-responsive {
+  @apply flex flex-col sm:flex-row gap-3 sm:gap-4 lg:gap-6;
 }

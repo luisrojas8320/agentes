@@ -5,12 +5,15 @@ import { useChat } from '@/contexts/ChatContext';
 import ChatMessage from '@/components/ChatMessage';
 import TypingAnimation from '@/components/TypingAnimation';
 import { useAuth } from '@/contexts/AuthContext';
+import { useIsMobile } from '@/hooks/use-mobile';
+import { cn } from '@/lib/utils';
 
 export default function MessageList() {
   const { messages, isLoading } = useChat();
   const { user } = useAuth();
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const [showWelcome, setShowWelcome] = useState(true);
+  const isMobile = useIsMobile();
 
   useEffect(() => {
     chatContainerRef.current?.scrollTo({
@@ -36,20 +39,56 @@ export default function MessageList() {
   };
 
   return (
-    <div ref={chatContainerRef} className="flex-1 overflow-y-auto">
-      <div className="max-w-4xl mx-auto px-6 py-8">
+    <div 
+      ref={chatContainerRef} 
+      className={cn(
+        "flex-1 overflow-y-auto",
+        // Asegurar que el scroll funcione bien en mobile
+        isMobile && "overscroll-contain"
+      )}
+      style={{
+        // Prevenir el rebote en iOS
+        WebkitOverflowScrolling: 'touch'
+      }}
+    >
+      <div className={cn(
+        "mx-auto",
+        isMobile 
+          ? "max-w-full px-3 py-4 chat-container" 
+          : "max-w-4xl px-6 py-8"
+      )}>
         {showWelcome && messages.length === 0 ? (
-          // Pantalla ultra minimalista centrada como Gemini
-          <div className="flex flex-col items-center justify-center min-h-[70vh] animate-fade-in">
+          // Pantalla ultra minimalista centrada como Gemini - Responsive
+          <div className={cn(
+            "flex flex-col items-center justify-center animate-fade-in",
+            isMobile 
+              ? "min-h-[60vh] px-4" 
+              : "min-h-[70vh]"
+          )}>
             <div className="text-center space-y-2">
-              <h1 className="text-5xl font-normal text-foreground">
+              <h1 className={cn(
+                "font-normal text-foreground",
+                isMobile 
+                  ? "text-3xl leading-tight" 
+                  : "text-5xl"
+              )}>
                 Hola, <span className="text-foreground/60">{getUserName()}</span>
               </h1>
+              
+              {/* Mensaje adicional para mobile */}
+              {isMobile && (
+                <p className="text-sm text-foreground/50 mt-4 max-w-xs mx-auto leading-relaxed">
+                  ¿En qué puedo ayudarte hoy?
+                </p>
+              )}
             </div>
           </div>
         ) : (
-          // Lista de mensajes minimalista
-          <div className="space-y-6">
+          // Lista de mensajes minimalista - Responsive
+          <div className={cn(
+            "spacing-responsive",
+            isMobile ? "space-y-4" : "space-y-6"
+          )}>
             {messages.map((message) => (
               <div key={message.id} className="animate-slide-up">
                 <ChatMessage 
@@ -64,6 +103,11 @@ export default function MessageList() {
               <div className="animate-slide-up">
                 <TypingAnimation />
               </div>
+            )}
+
+            {/* Espacio adicional al final para mobile */}
+            {isMobile && messages.length > 0 && (
+              <div className="h-4" />
             )}
           </div>
         )}
